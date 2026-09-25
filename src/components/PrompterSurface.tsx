@@ -200,11 +200,11 @@ export function PrompterSurface({
         )}
         <div
           ref={stageRef}
-          className="prompter-stage"
+          className={`prompter-stage ${state.isPlaying && state.playbackMode === 'fixed' ? 'is-playing' : ''}`.trim()}
           style={{
             ...stageStyle,
             '--paragraph-spacing': `${typography.paragraphSpacing}em`,
-            '--stage-y': `${translateY}px`,
+            '--stage-y': `${Number(translateY.toFixed(2))}px`,
           } as React.CSSProperties}
         >
         {document.paragraphs.map((paragraph, index) => {

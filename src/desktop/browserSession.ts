@@ -49,7 +49,7 @@ export function dispatchBrowserCommand(command: SessionCommand, broadcast = true
   state = next;
   listeners.forEach((listener) => listener(state));
 
-  if (!['tick', 'reportLayout', 'setTracker', 'setDisplayOpen', 'setPlaying', 'togglePlay', 'seek'].includes(command.type)) {
+  if (!['tick', 'reportLayout', 'setTracker', 'setDisplayOpen', 'setPlaying', 'togglePlay', 'seek', 'scrollStep'].includes(command.type)) {
     schedulePersist();
   }
 
@@ -76,8 +76,9 @@ export function subscribeBrowserState(listener: (next: SessionState) => void): (
 }
 
 function tick(now: number): void {
-  const elapsedMs = Math.min(250, now - lastTick);
+  const delta = now - lastTick;
   lastTick = now;
+  const elapsedMs = delta > 100 ? 16 : Math.max(0, delta);
   if (state.isPlaying && state.playbackMode === 'fixed') dispatchBrowserCommand({ type: 'tick', elapsedMs });
   requestAnimationFrame(tick);
 }

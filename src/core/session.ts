@@ -181,20 +181,40 @@ function navigateParagraph(state: SessionState, direction: -1 | 1): ScriptAnchor
   return anchorAt(state.document, state.document.paragraphs[nextIndex].startOffset);
 }
 
-function navigatePage(state: SessionState, direction: -1 | 1): ScriptAnchor {
-  const pages = state.layout?.documentRevision === state.document.revision
-    ? state.layout.pageAnchors
-    : [];
-  if (!pages.length) {
-    return navigateParagraph(state, direction);
+function navigatePage(state: SessionState, direction: -1 | 1): { anchor: ScriptAnchor; scrollOffsetPx: number } {
+  const layout = state.layout;
+  const pageOffsets = layout?.pageScrollOffsets ?? [];
+  const pageAnchors = layout?.pageAnchors ?? [];
+
+  if (pageOffsets.length > 1 && pageAnchors.length === pageOffsets.length) {
+    const currentOffset = state.scrollOffsetPx;
+    let targetIndex = -1;
+    if (direction === 1) {
+      targetIndex = pageOffsets.findIndex((offset) => offset > currentOffset + 10);
+      if (targetIndex < 0) targetIndex = pageOffsets.length - 1;
+    } else {
+      for (let i = pageOffsets.length - 1; i >= 0; i -= 1) {
+        if (pageOffsets[i] < currentOffset - 10) {
+          targetIndex = i;
+          break;
+        }
+      }
+      if (targetIndex < 0) targetIndex = 0;
+    }
+    return {
+      anchor: pageAnchors[targetIndex],
+      scrollOffsetPx: pageOffsets[targetIndex],
+    };
   }
 
-  let currentPage = 0;
-  for (let index = 0; index < pages.length; index += 1) {
-    if (pages[index].globalOffset <= state.anchor.globalOffset) currentPage = index;
-  }
-  const nextPage = Math.max(0, Math.min(pages.length - 1, currentPage + direction));
-  return pages[nextPage];
+  const fallbackStep = Math.max(200, (layout?.viewportHeight ?? 600) * 0.75);
+  const maxScroll = Math.max(0, (layout?.documentHeight ?? 0) - state.typography.fontSize * state.typography.lineHeight);
+  const nextScroll = Math.max(0, Math.min(maxScroll || 999999, state.scrollOffsetPx + direction * fallbackStep));
+  const nextParagraphAnchor = navigateParagraph(state, direction);
+  return {
+    anchor: nextParagraphAnchor,
+    scrollOffsetPx: nextScroll,
+  };
 }
 
 function scrollOffsetForAnchor(state: SessionState, anchor: ScriptAnchor): number {
@@ -298,27 +318,34 @@ export function sessionReducer(state: SessionState, command: SessionCommand): Se
     case 'setSpeed':
       patch = { scrollSpeedPxPerSecond: Math.max(1, Math.min(2000, command.speed)) };
       break;
-    case 'navigatePage':
-      {
-        const nextAnchor = navigatePage(state, command.direction);
-        const pageIndex = state.layout?.pageAnchors.findIndex((item) => item.globalOffset === nextAnchor.globalOffset) ?? -1;
-        patch = {
-          anchor: nextAnchor,
-          scrollOffsetPx: pageIndex >= 0 ? state.layout?.pageScrollOffsets?.[pageIndex] ?? state.scrollOffsetPx : state.scrollOffsetPx,
-          isPlaying: false,
-        };
-      }
+    case 'scrollStep': {
+      const maxScroll = Math.max(0, (state.layout?.documentHeight ?? 0) - state.typography.fontSize * state.typography.lineHeight);
+      const nextOffset = Math.max(0, Math.min(maxScroll || 999999, state.scrollOffsetPx + command.deltaPx));
+      patch = {
+        scrollOffsetPx: nextOffset,
+      };
       break;
-    case 'navigateParagraph':
-      {
-        const nextAnchor = navigateParagraph(state, command.direction);
-        patch = {
-          anchor: nextAnchor,
-          scrollOffsetPx: state.layout?.paragraphScrollOffsets?.[nextAnchor.paragraphIndex] ?? state.scrollOffsetPx,
-          isPlaying: false,
-        };
-      }
+    }
+    case 'navigatePage': {
+      const { anchor: nextAnchor, scrollOffsetPx: nextScroll } = navigatePage(state, command.direction);
+      patch = {
+        anchor: nextAnchor,
+        scrollOffsetPx: nextScroll,
+        isPlaying: false,
+      };
       break;
+    }
+    case 'navigateParagraph': {
+      const nextAnchor = navigateParagraph(state, command.direction);
+      const targetScroll = state.layout?.paragraphScrollOffsets?.[nextAnchor.paragraphIndex]
+        ?? Math.max(0, state.scrollOffsetPx + command.direction * 150);
+      patch = {
+        anchor: nextAnchor,
+        scrollOffsetPx: targetScroll,
+        isPlaying: false,
+      };
+      break;
+    }
     case 'rewindStep':
       patch = {
         anchor: anchorAt(state.document, state.anchor.globalOffset - 80),

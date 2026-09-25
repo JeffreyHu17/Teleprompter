@@ -32,8 +32,9 @@ import {
   X,
 } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
-import type { FunAsrBackend, FunAsrModelId, MirrorMode, SessionCommand } from '../types/session';
+import type { FunAsrBackend, FunAsrModelId, LayoutReport, MirrorMode, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
+import { anchorAt } from '../core/session';
 import { platformCapabilities } from './capabilities';
 import mammoth from 'mammoth';
 
@@ -47,7 +48,13 @@ const FONT_OPTIONS = [
 ];
 
 function isEditableTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+  if (!target || !(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable) return true;
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target instanceof HTMLInputElement) {
+    return /^(text|search|password|email|number|tel|url)$/i.test(target.type);
+  }
+  return false;
 }
 
 export function ControlView() {
@@ -80,22 +87,44 @@ export function ControlView() {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isEditableTarget(event.target)) return;
+
+      const isSpace = event.code === 'Space' || event.key === ' ' || event.key === 'Spacebar' || event.keyCode === 32;
+      const isEnter = event.code === 'Enter' || event.key === 'Enter' || event.keyCode === 13;
+      const isRight = event.code === 'ArrowRight' || event.key === 'ArrowRight' || event.key === 'Right' || event.keyCode === 39;
+      const isLeft = event.code === 'ArrowLeft' || event.key === 'ArrowLeft' || event.key === 'Left' || event.keyCode === 37;
+      const isDown = event.code === 'ArrowDown' || event.key === 'ArrowDown' || event.key === 'Down' || event.keyCode === 40;
+      const isUp = event.code === 'ArrowUp' || event.key === 'ArrowUp' || event.key === 'Up' || event.keyCode === 38;
+      const isPageDown = event.code === 'PageDown' || event.key === 'PageDown' || event.keyCode === 34;
+      const isPageUp = event.code === 'PageUp' || event.key === 'PageUp' || event.keyCode === 33;
+      const isHome = event.code === 'Home' || event.key === 'Home' || event.keyCode === 36;
+
       let next: SessionCommand | null = null;
-      if (event.code === 'Space') next = { type: 'togglePlay' };
-      else if (event.key === 'ArrowLeft') next = { type: event.shiftKey ? 'navigateParagraph' : 'navigatePage', direction: -1 };
-      else if (event.key === 'ArrowRight') next = { type: event.shiftKey ? 'navigateParagraph' : 'navigatePage', direction: 1 };
-      else if (event.key === 'ArrowUp') next = { type: 'adjustSpeed', delta: 10 };
-      else if (event.key === 'ArrowDown') next = { type: 'adjustSpeed', delta: -10 };
-      else if (event.key === 'PageUp') next = { type: 'rewindStep' };
-      else if (event.key === 'Enter') next = { type: 'togglePlay' };
+      if (isSpace || isEnter) {
+        next = { type: 'togglePlay' };
+      } else if (isRight || isPageDown) {
+        next = { type: event.shiftKey ? 'navigateParagraph' : 'navigatePage', direction: 1 };
+      } else if (isLeft || isPageUp) {
+        next = { type: event.shiftKey ? 'navigateParagraph' : 'navigatePage', direction: -1 };
+      } else if (isDown) {
+        next = state.isPlaying ? { type: 'adjustSpeed', delta: -10 } : { type: 'scrollStep', deltaPx: 60 };
+      } else if (isUp) {
+        next = state.isPlaying ? { type: 'adjustSpeed', delta: 10 } : { type: 'scrollStep', deltaPx: -60 };
+      } else if (event.key === '[' || event.key === '-') {
+        next = { type: 'adjustSpeed', delta: -10 };
+      } else if (event.key === ']' || event.key === '=' || event.key === '+') {
+        next = { type: 'adjustSpeed', delta: 10 };
+      } else if (isHome) {
+        next = { type: 'seek', anchor: anchorAt(state.document, 0) };
+      }
       if (next) {
         event.preventDefault();
+        event.stopPropagation();
         command(next);
       }
     };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [command]);
+    window.addEventListener('keydown', onKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+  }, [command, state.isPlaying, state.document]);
 
   const commitDraft = () => {
     if (draft !== state.document.rawText) command({ type: 'setDocument', name: state.document.name, text: draft });
@@ -277,6 +306,9 @@ export function ControlView() {
             width={state.layout?.viewportWidth ?? previewDisplay?.width ?? 1280}
             height={state.layout?.viewportHeight ?? previewDisplay?.height ?? 720}
             viewMirrorHorizontal={previewMirror}
+            onLayout={(layout) => {
+              if (!state.layout) command({ type: 'reportLayout', layout });
+            }}
           />
           {state.playbackMode === 'ai' && (
             <section className={state.trackerStatus === 'lost' ? 'speech-monitor error' : 'speech-monitor'} aria-label="本地语音跟踪状态">
@@ -491,11 +523,11 @@ export function ControlView() {
 
           <SettingsSection className="help-settings" icon={<Keyboard size={15} />} title="快捷键">
             <div className="shortcut-grid">
-              <kbd>Space</kbd><span>播放 / 暂停</span>
-              <kbd>Enter</kbd><span>播放 / 暂停</span>
-              <kbd>← →</kbd><span>按页跳转</span>
-              <kbd>Shift + ← →</kbd><span>按段跳转</span>
-              <kbd>↑ ↓</kbd><span>调整速度</span>
+              <kbd>Space / Enter</kbd><span>播放 / 暂停</span>
+              <kbd>← → / PgUp PgDn</kbd><span>按页跳转 (Shift 按段)</span>
+              <kbd>↑ ↓</kbd><span>单步滚动 (暂停) / 调速 (播放)</span>
+              <kbd>[ ]</kbd><span>微调速度 (±10)</span>
+              <kbd>Home</kbd><span>回到开头</span>
             </div>
           </SettingsSection>
         </aside>
@@ -590,11 +622,12 @@ function formatBytes(bytes: number): string {
     : `${Math.round(bytes / 1024 ** 2)} MB`;
 }
 
-function ProgramMonitor({ state, width, height, viewMirrorHorizontal }: {
+function ProgramMonitor({ state, width, height, viewMirrorHorizontal, onLayout }: {
   state: ReturnType<typeof useTeleprompter>['state'];
   width: number;
   height: number;
   viewMirrorHorizontal: boolean;
+  onLayout?: (layout: LayoutReport) => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.25);
@@ -626,6 +659,7 @@ function ProgramMonitor({ state, width, height, viewMirrorHorizontal }: {
           className="preview-surface"
           viewMirrorHorizontal={viewMirrorHorizontal}
           showTextBounds
+          onLayout={onLayout}
         />
       </div>
     </div>

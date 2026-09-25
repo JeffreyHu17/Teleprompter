@@ -163,6 +163,7 @@ export type SessionCommand =
   | { type: 'setFunAsrState'; patch: Partial<FunAsrState> }
   | { type: 'adjustSpeed'; delta: number }
   | { type: 'setSpeed'; speed: number }
+  | { type: 'scrollStep'; deltaPx: number }
   | { type: 'navigatePage'; direction: -1 | 1 }
   | { type: 'navigateParagraph'; direction: -1 | 1 }
   | { type: 'rewindStep' }
