@@ -1,0 +1,86 @@
+{
+  "$schema": "./models.schema.json",
+  "version": "1.0.0",
+  "defaultEndpoints": {
+    "huggingface": [
+      "https://hf-mirror.com",
+      "https://huggingface.co"
+    ]
+  },
+  "engines": {
+    "funasr": {
+      "name": "FunASR (sherpa-onnx)",
+      "worker": "workers/funasrWorker.js",
+      "supportedModes": ["streaming"]
+    },
+    "whisper": {
+      "name": "Whisper",
+      "worker": "workers/whisperWorker.js",
+      "supportedModes": ["segmented"]
+    }
+  },
+  "models": [
+    {
+      "id": "paraformer-streaming-int8",
+      "engine": "funasr",
+      "name": "Paraformer Streaming",
+      "variant": "INT8",
+      "description": "实时跟稿默认，约 480-600ms 增量更新",
+      "filename": "paraformer-streaming-int8",
+      "sha256": "8e40c43232a1c5c66c82111efc5820d3accca11b",
+      "sizeBytes": 237202501,
+      "version": "8e40c432",
+      "mode": "streaming",
+      "repository": "csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en",
+      "sourceType": "huggingface",
+      "artifacts": [
+        {
+          "filename": "encoder.int8.onnx",
+          "sha256": "81a70226a8934e6ed92aa1d4fc486b428b5398e2f2619ed4897b7294cab90e9a",
+          "sizeBytes": 165462184
+        },
+        {
+          "filename": "decoder.int8.onnx",
+          "sha256": "f3cca9f77bb9d93c8fcbfb63ae617b6b1ee96818df3aa3b151c40658fe38594f",
+          "sizeBytes": 71664561
+        },
+        {
+          "filename": "tokens.txt",
+          "sha256": "59aba8873a2ed1e122c25fee421e25f283b63290efbde85c1f01a853d83cb6e6",
+          "sizeBytes": 75756
+        }
+      ]
+    },
+    {
+      "id": "paraformer-streaming-fp32",
+      "engine": "funasr",
+      "name": "Paraformer Streaming",
+      "variant": "FP32",
+      "description": "未量化精度版，约 825 MiB，内存占用高",
+      "filename": "paraformer-streaming-fp32",
+      "sha256": "8e40c43232a1c5c66c82111efc5820d3accca11b",
+      "sizeBytes": 864888677,
+      "version": "8e40c432",
+      "mode": "streaming",
+      "repository": "csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en",
+      "sourceType": "huggingface",
+      "artifacts": [
+        {
+          "filename": "encoder.onnx",
+          "sha256": "832c8e8d3f758f4ab0fcfc011eec91154ecd129b7305564a7b461b20064ebcc6",
+          "sizeBytes": 636348877
+        },
+        {
+          "filename": "decoder.onnx",
+          "sha256": "e178f5a7dd4efbf5905a797807006d773b12116eb39fed3d16758e68f9f50921",
+          "sizeBytes": 228464044
+        },
+        {
+          "filename": "tokens.txt",
+          "sha256": "59aba8873a2ed1e122c25fee421e25f283b63290efbde85c1f01a853d83cb6e6",
+          "sizeBytes": 75756
+        }
+      ]
+    }
+  ]
+}

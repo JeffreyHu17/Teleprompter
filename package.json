@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p electron/tsconfig.json --noEmit",
     "build": "npm run build:native && tsc -p electron/tsconfig.json && vite build",
     "build:desktop": "cross-env VITE_TARGET=desktop npm run build",
+    "build:web": "vite build",
     "build:android:web": "cross-env VITE_TARGET=android vite build",
     "sync:android": "npm run build:android:web && cap sync android",
     "build:android": "npm run sync:android && node scripts/build-android.mjs",
@@ -97,6 +98,10 @@
           "filter": [
             "**/*"
           ]
+        },
+        {
+          "from": "electron/config/models.json",
+          "to": "config/models.json"
         }
       ],
       "target": [
@@ -115,6 +120,10 @@
         {
           "from": "native/windows/TeleprompterSpeech.ps1",
           "to": "native/windows/TeleprompterSpeech.ps1"
+        },
+        {
+          "from": "electron/config/models.json",
+          "to": "config/models.json"
         }
       ],
       "target": [

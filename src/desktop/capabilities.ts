@@ -11,18 +11,22 @@ export interface PlatformCapabilities {
 
 export function runtimePlatform(): RuntimePlatform {
   if (import.meta.env.VITE_TARGET === 'android') return 'android';
-  if (/Windows/i.test(navigator.userAgent)) return 'windows';
-  if (/Macintosh|Mac OS X/i.test(navigator.userAgent)) return 'macos';
+  const isElectron = typeof window !== 'undefined' && Boolean(window.teleprompter || navigator.userAgent.includes('Electron'));
+  if (isElectron) {
+    if (/Windows/i.test(navigator.userAgent)) return 'windows';
+    return 'macos';
+  }
   return 'browser';
 }
 
 export function platformCapabilities(platform = runtimePlatform()): PlatformCapabilities {
+  const isDesktop = platform === 'macos' || platform === 'windows';
   return {
     platform,
-    desktop: platform === 'macos' || platform === 'windows',
+    desktop: isDesktop,
     mobile: platform === 'android',
-    systemSpeech: platform === 'macos' || platform === 'windows' || platform === 'android',
-    funAsr: platform === 'macos' || platform === 'windows',
-    externalDisplay: platform === 'macos' || platform === 'windows',
+    systemSpeech: isDesktop || platform === 'android',
+    funAsr: isDesktop,
+    externalDisplay: isDesktop,
   };
 }

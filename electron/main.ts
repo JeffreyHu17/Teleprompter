@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences, type Input, type OpenDialogOptions } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, createReadStream, createWriteStream } from 'node:fs';
+import { accessSync, createReadStream, createWriteStream, existsSync, readFileSync } from 'node:fs';
 import { access, chmod, copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { get as httpsGet } from 'node:https';
@@ -10,14 +10,13 @@ import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
-import mammoth from 'mammoth';
 import { BidirectionalScriptTracker } from '../src/core/scriptTracker.js';
 import { anchorAt, initialSessionState, sessionReducer } from '../src/core/session.js';
-import { decodeTextBuffer, markdownToPromptText } from '../src/core/importers.js';
-import { preferencesFromState, stateFromPreferences } from '../src/core/persistence.js';
 import type { DisplayInfo, FunAsrBackend, FunAsrModelId, FunAsrModelState, ImportResult, SessionCommand, SessionState } from '../src/types/session.js';
 import { allowAudioMediaCheck, allowAudioMediaRequest, requestMicrophoneAccess } from './mediaAccess.js';
 import { createSystemSpeechCommand } from './systemSpeech.js';
+import { importScriptViaDialog } from './services/fileImporter.js';
+import { schedulePersistState as persistSessionState, restorePersistedState as loadPersistedState } from './services/persistenceService.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const devServerUrl = process.env.VITE_DEV_SERVER_URL;
@@ -99,7 +98,7 @@ interface FunAsrManifest {
   models: Partial<Record<FunAsrModelId, FunAsrManifestModel>>;
 }
 
-const FUNASR_MODELS: Record<FunAsrModelId, FunAsrModelDefinition> = {
+const DEFAULT_FUNASR_MODELS: Record<FunAsrModelId, FunAsrModelDefinition> = {
   'paraformer-streaming-int8': {
     id: 'paraformer-streaming-int8',
     name: 'Paraformer Streaming',
@@ -134,13 +133,61 @@ const FUNASR_MODELS: Record<FunAsrModelId, FunAsrModelDefinition> = {
   },
 };
 
+function loadConfiguredModels(): Record<FunAsrModelId, FunAsrModelDefinition> {
+  const models = { ...DEFAULT_FUNASR_MODELS };
+  try {
+    const configPath = app.isPackaged
+      ? join(process.resourcesPath, 'config', 'models.json')
+      : join(__dirname, '../config/models.json');
+    if (existsSync(configPath)) {
+      const content = readFileSync(configPath, 'utf8');
+      const parsed = JSON.parse(content) as { models?: FunAsrModelDefinition[] };
+      if (Array.isArray(parsed.models)) {
+        for (const item of parsed.models) {
+          if (item.id && (item.id === 'paraformer-streaming-int8' || item.id === 'paraformer-streaming-fp32')) {
+            models[item.id] = { ...models[item.id], ...item };
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.warn('Unable to load external models.json config, using defaults', error);
+  }
+  return models;
+}
+
+const FUNASR_MODELS = loadConfiguredModels();
+
 function huggingFaceUrls(repository: string, filename: string): string[] {
-  const endpoints = [process.env.TELEPROMPTER_HF_ENDPOINT, 'https://huggingface.co', 'https://hf-mirror.com'].filter((value): value is string => Boolean(value));
+  const endpoints = [
+    process.env.TELEPROMPTER_HF_ENDPOINT,
+    'https://hf-mirror.com',
+    'https://huggingface.co',
+  ].filter((value): value is string => Boolean(value));
   return [...new Set(endpoints)].map((endpoint) => `${endpoint.replace(/\/$/, '')}/${repository}/resolve/main/${filename}`);
 }
 
+function modelsStorageRoot(engine = 'funasr'): string {
+  return join(app.getPath('userData'), 'models', engine);
+}
+
 function funAsrRoot(): string {
-  return join(app.getPath('userData'), 'funasr');
+  return modelsStorageRoot('funasr');
+}
+
+async function migrateLegacyModelStorage(): Promise<void> {
+  try {
+    const legacyPath = join(app.getPath('userData'), 'funasr');
+    const newEnginePath = modelsStorageRoot('funasr');
+    const legacyExists = await access(legacyPath).then(() => true).catch(() => false);
+    const newExists = await access(newEnginePath).then(() => true).catch(() => false);
+    if (legacyExists && !newExists) {
+      await mkdir(join(app.getPath('userData'), 'models'), { recursive: true });
+      await rename(legacyPath, newEnginePath);
+    }
+  } catch (error) {
+    console.warn('Failed to migrate legacy model storage:', error);
+  }
 }
 
 async function cleanupLegacySegmentedFunAsr(): Promise<void> {
@@ -755,30 +802,13 @@ function dispatch(command: SessionCommand): void {
   if (command.type === 'setDisplay' && displayWindow) placeDisplayWindow();
 }
 
-function preferencesPath(): string {
-  return join(app.getPath('userData'), 'teleprompter-preferences.json');
-}
-
 function schedulePersistState(): void {
-  if (process.env.TELEPROMPTER_DISABLE_PERSISTENCE === '1') return;
-  if (persistTimer) clearTimeout(persistTimer);
-  persistTimer = setTimeout(() => {
-    persistTimer = null;
-    const path = preferencesPath();
-    void mkdir(dirname(path), { recursive: true })
-      .then(() => writeFile(path, JSON.stringify(preferencesFromState(state), null, 2), 'utf8'))
-      .catch((error) => console.error('Unable to persist teleprompter preferences', error));
-  }, 180);
+  persistSessionState(() => state);
 }
 
 async function restorePersistedState(): Promise<void> {
-  if (process.env.TELEPROMPTER_DISABLE_PERSISTENCE === '1') return;
-  try {
-    state = stateFromPreferences(JSON.parse(await readFile(preferencesPath(), 'utf8')));
-  } catch (error) {
-    const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : '';
-    if (code !== 'ENOENT') console.error('Unable to restore teleprompter preferences', error);
-  }
+  const restored = await loadPersistedState();
+  if (restored) state = restored;
 }
 
 async function submitRendererSpeechSegment(contents: Uint8Array, durationMs: number): Promise<void> {
@@ -1297,28 +1327,7 @@ function installKeyboardHandler(window: BrowserWindow): void {
 }
 
 async function importScript(): Promise<ImportResult | null> {
-  const options: OpenDialogOptions = {
-    title: '导入提词稿',
-    properties: ['openFile'],
-    filters: [
-      { name: '提词稿', extensions: ['txt', 'md', 'docx'] },
-      { name: '所有文件', extensions: ['*'] },
-    ],
-  };
-  const result = controllerWindow
-    ? await dialog.showOpenDialog(controllerWindow, options)
-    : await dialog.showOpenDialog(options);
-  if (result.canceled || !result.filePaths[0]) return null;
-
-  const filePath = result.filePaths[0];
-  const extension = extname(filePath).toLowerCase();
-  const name = filePath.split(/[\\/]/).pop() ?? '导入稿件';
-  if (extension === '.docx') {
-    const extracted = await mammoth.extractRawText({ path: filePath });
-    return { name, text: extracted.value };
-  }
-  const decoded = decodeTextBuffer(await readFile(filePath));
-  return { name, text: extension === '.md' ? markdownToPromptText(decoded) : decoded };
+  return importScriptViaDialog(controllerWindow);
 }
 
 function startTicker(): void {
@@ -1378,6 +1387,7 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(async () => {
+  await migrateLegacyModelStorage();
   await restorePersistedState();
   await cleanupLegacySegmentedFunAsr();
   const availableBackends: SessionState['funasr']['availableBackends'] = process.platform === 'win32' ? ['cuda', 'vulkan', 'cpu'] : ['cpu'];

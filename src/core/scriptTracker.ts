@@ -161,6 +161,26 @@ export function rewindRangeStart(text: string, offset: number, characters: numbe
   return start;
 }
 
+/** Find start offset of the current clause or sentence for clean rewind alignment */
+export function findSentenceBoundaryStart(text: string, offset: number): number {
+  if (offset <= 0) return 0;
+  const bound = Math.min(text.length, offset);
+  for (let index = bound - 1; index >= 0; index -= 1) {
+    const ch = text[index];
+    if (/[。！？!?；;\n\r]/.test(ch)) {
+      let start = index + 1;
+      while (start < bound && /[\s，、,：:]/.test(text[start])) start += 1;
+      return start;
+    }
+    if (/[，、,：:]/.test(ch)) {
+      let start = index + 1;
+      while (start < bound && /\s/.test(text[start])) start += 1;
+      return start;
+    }
+  }
+  return 0;
+}
+
 export class BidirectionalScriptTracker {
   private documentRevision = -1;
   private script: NormalizedScript = { tokens: [] };
@@ -183,12 +203,17 @@ export class BidirectionalScriptTracker {
 
     const currentIndex = nearestTokenIndex(this.script, currentOffset);
     const shortQuery = transcriptTokens.length < 4;
-    const backwardLimit = shortQuery ? 8 : now < this.protectedUntil ? 24 : 560;
-    const forwardLimit = shortQuery ? 64 : 1200;
-    const rangeStart = rewindRangeStart(document.paragraphs.map((paragraph) => paragraph.text).join('\n'), currentOffset, rewindCharacters);
+    const backwardLimit = shortQuery ? (now < this.protectedUntil ? 16 : 120) : now < this.protectedUntil ? 32 : 560;
+    const forwardLimit = shortQuery ? 48 : 600;
+    const fullText = document.paragraphs.map((paragraph) => paragraph.text).join('\n');
+    const rangeStart = rewindRangeStart(fullText, currentOffset, rewindCharacters);
     const configuredStart = this.script.tokens.findIndex((token) => token.sourceOffset >= rangeStart);
-    const searchStart = Math.max(0, configuredStart < 0 ? currentIndex : configuredStart,
-      shortQuery || now < this.protectedUntil ? currentIndex - backwardLimit : 0);
+    // Respect configured rewind start boundary strictly; apply manual protection limit if protected
+    const searchStart = Math.max(
+      0,
+      configuredStart < 0 ? currentIndex : configuredStart,
+      now < this.protectedUntil ? currentIndex - 32 : 0,
+    );
     const searchEnd = Math.min(this.script.tokens.length, currentIndex + forwardLimit);
     const lengths = [...new Set([
       Math.min(28, transcriptTokens.length),
@@ -215,10 +240,16 @@ export class BidirectionalScriptTracker {
           const similarity = 1 - distance / Math.max(query.length, candidate.length);
           const sourceOffset = this.script.tokens[Math.max(0, end - 1)].sourceEnd;
           const distanceFromCurrent = Math.abs(sourceOffset - currentOffset);
-          const directionPenalty = sourceOffset < currentOffset ? 0.025 : 0;
-          const proximityPenalty = Math.min(shortQuery ? 0.18 : 0.08, distanceFromCurrent / (shortQuery ? 800 : 20_000));
-          const lengthBonus = Math.min(0.07, query.length / 400);
-          const score = similarity + lengthBonus - directionPenalty - proximityPenalty;
+
+          // Direction & proximity penalties:
+          // If match is backward and highly similar, do not penalize it.
+          // Penalize distant forward jumps heavily to avoid false jumps downstream.
+          const isBackward = sourceOffset < currentOffset;
+          const directionPenalty = isBackward ? (similarity >= 0.85 && query.length >= 4 ? 0 : 0.015) : 0;
+          const distantForwardPenalty = (!isBackward && distanceFromCurrent > 120) ? Math.min(0.15, (distanceFromCurrent - 120) / 1000) : 0;
+          const proximityPenalty = Math.min(shortQuery ? 0.12 : 0.05, distanceFromCurrent / (shortQuery ? 1200 : 25_000));
+          const lengthBonus = Math.min(0.08, query.length / 300);
+          const score = similarity + lengthBonus - directionPenalty - proximityPenalty - distantForwardPenalty;
           if (!best || score > best.score) {
             if (best) secondScore = Math.max(secondScore, best.score);
             best = { index: end, score, query };
@@ -234,23 +265,47 @@ export class BidirectionalScriptTracker {
     const ambiguity = best.score - secondScore;
     const targetOffset = this.script.tokens[Math.max(0, best.index - 1)].sourceEnd;
     const delta = targetOffset - currentOffset;
-    const threshold = best.query.length >= 12 ? 0.69 : best.query.length >= 4 ? 0.78 : 0.9;
-    if (confidence < threshold || (ambiguity < 0.012 && best.query.length < 4)) return null;
+    const threshold = best.query.length >= 12 ? 0.68 : best.query.length >= 6 ? 0.75 : best.query.length >= 4 ? 0.78 : 0.88;
+    if (confidence < threshold || (ambiguity < 0.01 && best.query.length < 4)) return null;
     if (delta === 0) return { offset: currentOffset, confidence, direction: 'hold', query: queryLabel(best.query) };
 
     if (delta < 0) {
-      if (rewindCharacters <= 0) return null;
-      if (delta > -12 || best.query.length < 4 || now < this.protectedUntil) return null;
-      const sameCandidate = this.backwardCandidate && Math.abs(this.backwardCandidate.offset - targetOffset) <= 18 && now - this.backwardCandidate.lastAt < 2500;
+      if (rewindCharacters <= 0 || now < this.protectedUntil) return null;
+      // Allow rewind if back at least 2 chars (short reread) and length is at least 3 tokens
+      if (delta > -2 || best.query.length < 3) return null;
+
+      // Align rewind offset to sentence/clause start so speaker sees the entire beginning of the sentence
+      const matchStartOffset = this.script.tokens[Math.max(0, best.index - best.query.length)].sourceOffset;
+      const rewindSentenceStart = findSentenceBoundaryStart(fullText, matchStartOffset);
+      const rewindOffset = Math.min(targetOffset, rewindSentenceStart);
+
+      // High-confidence or long query triggers immediate rewind even on streaming partials
+      const immediateRewind = isFinal || (best.query.length >= 5 && confidence >= 0.80) || (best.query.length >= 4 && confidence >= 0.88);
+      if (immediateRewind) {
+        this.backwardCandidate = null;
+        this.positionLocked = true;
+        return { offset: rewindOffset, confidence, direction: 'backward', query: queryLabel(best.query) };
+      }
+
+      // Continuous stream tracking for progressive partials
+      const sameCandidate = this.backwardCandidate
+        && targetOffset >= this.backwardCandidate.offset - 4
+        && targetOffset <= this.backwardCandidate.offset + 28
+        && now - this.backwardCandidate.lastAt < 2500;
       this.backwardCandidate = {
         offset: targetOffset,
         confirmations: sameCandidate ? this.backwardCandidate!.confirmations + 1 : 1,
         lastAt: now,
       };
-      if (!isFinal && this.backwardCandidate.confirmations < 2) return null;
+      if (this.backwardCandidate.confirmations < 2) return null;
       this.backwardCandidate = null;
       this.positionLocked = true;
-      return { offset: targetOffset, confidence, direction: 'backward', query: queryLabel(best.query) };
+      return { offset: rewindOffset, confidence, direction: 'backward', query: queryLabel(best.query) };
+    }
+
+    // Guard against distant forward jumps on weak queries
+    if (delta > 100 && best.query.length < 5 && confidence < 0.88) {
+      return null;
     }
 
     this.backwardCandidate = null;

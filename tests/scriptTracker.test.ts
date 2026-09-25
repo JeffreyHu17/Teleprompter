@@ -60,15 +60,48 @@ describe('bidirectional script tracker', () => {
     expect(fullWord!.offset - locked!.offset).toBe(' Teleprompter'.length);
   });
 
-  it('requires confirmation before rewinding on partial transcripts', () => {
+  it('triggers immediate rewind on long high-confidence queries and confirms on short queries', () => {
     const document = createDocument('test', TEXT);
     const tracker = new BidirectionalScriptTracker();
     const current = document.paragraphs[3].startOffset;
-    const first = tracker.match(document, '这是第二段内容说话时画面应该稳定地向前移动', current, false, 1000);
-    const second = tracker.match(document, '这是第二段内容说话时画面应该稳定地向前移动', current, false, 1500);
-    expect(first).toBeNull();
-    expect(second?.direction).toBe('backward');
-    expect(second?.offset).toBeLessThan(current);
+    // Short 3-character query requires confirmation on partial
+    const shortFirst = tracker.match(document, '这是第', current, false, 1000);
+    const shortSecond = tracker.match(document, '这是第二', current, false, 1400);
+    expect(shortFirst).toBeNull();
+    expect(shortSecond?.direction).toBe('backward');
+    expect(shortSecond?.offset).toBeLessThan(current);
+
+    // High confidence query triggers immediate rewind
+    const tracker2 = new BidirectionalScriptTracker();
+    const immediate = tracker2.match(document, '这是第二段内容说话时画面应该稳定地向前移动', current, false, 1000);
+    expect(immediate?.direction).toBe('backward');
+    expect(immediate?.offset).toBeLessThan(current);
+  });
+
+  it('allows short-distance rewind of 3 to 10 characters and aligns to clause start', () => {
+    const document = createDocument('test', '今天的天气非常晴朗，阳光明媚，微风拂面。');
+    const tracker = new BidirectionalScriptTracker();
+    const forward = tracker.match(document, '今天的天气非常晴朗阳光明媚微风拂面', 0, true, 1000);
+    expect(forward?.direction).toBe('forward');
+    const currentOffset = forward!.offset; // at end of sentence
+
+    // Speaker rereads the previous short phrase "阳光明媚"
+    const rewind = tracker.match(document, '阳光明媚', currentOffset, true, 1500);
+    expect(rewind?.direction).toBe('backward');
+    // "今天的天气非常晴朗，" is 10 chars; the clause starts at offset 10 ("阳")
+    expect(rewind?.offset).toBe(10);
+  });
+
+  it('does not jump downstream to distant matching words when reading previous content', () => {
+    // Both paragraphs share the word "功能测试"
+    const docWithDuplicates = createDocument('test', `第一段进行基础功能测试。\n\n第二段是主要内容继续进行。\n\n第三段在很远的后文也提到了功能测试。`);
+    const tracker = new BidirectionalScriptTracker();
+    const pos2 = docWithDuplicates.paragraphs[1].startOffset + 8; // positioned in paragraph 2
+
+    // Speaker rereads from paragraph 1: "第一段进行基础功能测试"
+    const rewind = tracker.match(docWithDuplicates, '第一段进行基础功能测试', pos2, true, 1000);
+    expect(rewind?.direction).toBe('backward');
+    expect(rewind?.offset).toBeLessThan(pos2);
   });
 
   it('blocks backward jumps during manual protection', () => {

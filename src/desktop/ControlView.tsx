@@ -35,6 +35,7 @@ import { useTeleprompter } from './useTeleprompter';
 import type { FunAsrBackend, FunAsrModelId, MirrorMode, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
 import { platformCapabilities } from './capabilities';
+import mammoth from 'mammoth';
 
 const FONT_OPTIONS = [
   { label: '梦源黑体', value: '"Dream Han Sans CN", system-ui' },
@@ -108,6 +109,16 @@ export function ControlView() {
 
   const handleBrowserFile = async (file?: File) => {
     if (!file) return;
+    if (file.name.toLowerCase().endsWith('.docx')) {
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const result = await mammoth.extractRawText({ arrayBuffer });
+        command({ type: 'setDocument', name: file.name, text: result.value });
+        return;
+      } catch (error) {
+        console.error('Failed to parse docx in browser', error);
+      }
+    }
     command({ type: 'setDocument', name: file.name, text: await file.text() });
   };
 
@@ -168,7 +179,7 @@ export function ControlView() {
           <button className="button primary" onClick={() => toggleDisplay(!state.displayOpen)}>
             <MonitorUp size={17} />{state.displayOpen ? '关闭显示' : '打开显示'}
           </button>
-          <input ref={fileRef} type="file" accept=".txt,.md" hidden onChange={(event) => void handleBrowserFile(event.target.files?.[0])} />
+          <input ref={fileRef} type="file" accept=".txt,.md,.docx" hidden onChange={(event) => void handleBrowserFile(event.target.files?.[0])} />
         </div>
       </header>
 
@@ -194,10 +205,12 @@ export function ControlView() {
           <HoldAdjustButton label="提高滚动速度" delta={20} onAdjust={(delta) => command({ type: 'adjustSpeed', delta })}>+</HoldAdjustButton>
           <small>px/s</small>
         </div>
-        <div className="segmented-control" aria-label="播放模式">
-          <button className={state.playbackMode === 'fixed' ? 'active' : ''} onClick={() => command({ type: 'setMode', mode: 'fixed' })}>定速</button>
-          <button className={state.playbackMode === 'ai' ? 'active' : ''} onClick={() => command({ type: 'setMode', mode: 'ai' })}><Mic2 size={14} />AI 跟随</button>
-        </div>
+        {(capabilities.systemSpeech || capabilities.funAsr) && (
+          <div className="segmented-control" aria-label="播放模式">
+            <button className={state.playbackMode === 'fixed' ? 'active' : ''} onClick={() => command({ type: 'setMode', mode: 'fixed' })}>定速</button>
+            <button className={state.playbackMode === 'ai' ? 'active' : ''} onClick={() => command({ type: 'setMode', mode: 'ai' })}><Mic2 size={14} />AI 跟随</button>
+          </div>
+        )}
         <div className="progress-block">
           <div><span>稿件进度</span><strong>{progress}%</strong></div>
           <div className="progress-track"><span style={{ width: `${progress}%` }} /></div>
@@ -324,8 +337,12 @@ export function ControlView() {
           </div>
 
           <nav className="settings-navigation" aria-label="设置分类">
-            {([['output', '显示排版'], ['speech', '语音跟随'], ['help', '快捷键']] as const).map(([id, label]) => (
-              <button key={id} aria-pressed={settingsCategory === id} className={settingsCategory === id ? 'active' : ''} onClick={() => setSettingsCategory(id)}>{label}</button>
+            {([
+              ['output', '显示排版'],
+              ...((capabilities.systemSpeech || capabilities.funAsr) ? [['speech', '语音跟随']] : []),
+              ['help', '快捷键'],
+            ] as const).map(([id, label]) => (
+              <button key={id} aria-pressed={settingsCategory === id} className={settingsCategory === id ? 'active' : ''} onClick={() => setSettingsCategory(id as 'output' | 'speech' | 'help')}>{label}</button>
             ))}
           </nav>
           <div className="settings-category-intro">{settingsCategory === 'output' ? '调整提词屏幕与阅读样式' : settingsCategory === 'speech' ? '设置重读范围、识别与麦克风' : '录制时常用的键盘操作'}</div>
