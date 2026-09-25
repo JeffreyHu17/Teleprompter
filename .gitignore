@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Generated application and package output
+dist/
+dist-android/
+dist-electron/
+release/
+native/macos/build/
+
+# Shelved feature prototypes
+native/android/
+
+# Debug evidence and temporary investigation files
+debug/
+
+# Test tooling output and coverage
+coverage/
+playwright-report/
+test-results/
+*.log
+*.tsbuildinfo
+
+# Local configuration
+.env
+.env.*
+!.env.example
+
+# Signing credentials and platform service configuration
+*.jks
+*.keystore
+*.p8
+*.p12
+*.pfx
+*.mobileprovision
+google-services.json
+
+# OS and editor metadata
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp

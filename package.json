@@ -1,0 +1,126 @@
+{
+  "name": "teleprompter-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first dual-window teleprompter for macOS and Windows",
+  "main": "dist-electron/electron/main.js",
+  "type": "module",
+  "scripts": {
+    "build:native": "node scripts/build-native.mjs",
+    "dev": "concurrently -k \"vite\" \"tsc -p electron/tsconfig.json --watch\" \"wait-on tcp:5173 file:dist-electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "typecheck": "tsc -p tsconfig.json && tsc -p electron/tsconfig.json --noEmit",
+    "build": "npm run build:native && tsc -p electron/tsconfig.json && vite build",
+    "build:desktop": "cross-env VITE_TARGET=desktop npm run build",
+    "build:android:web": "cross-env VITE_TARGET=android vite build",
+    "sync:android": "npm run build:android:web && cap sync android",
+    "build:android": "npm run sync:android && node scripts/build-android.mjs",
+    "build:mac": "node scripts/build-mac.mjs",
+    "build:windows": "node scripts/build-windows.mjs",
+    "test": "vitest run",
+    "test:e2e:mac": "npm run build && node tests/electron.mjs",
+    "test:e2e:ai": "npm run build && node tests/electron-ai.mjs",
+    "test:e2e:media": "npm run build && node tests/electron-media-permission.mjs",
+    "test:e2e:funasr-install": "npm run build && node tests/electron-funasr-install.mjs",
+    "test:e2e:funasr-real": "npm run build && node tests/electron-funasr-real.mjs",
+    "test:e2e:funasr-streaming": "npm run build && node tests/electron-funasr-streaming.mjs",
+    "test:funasr-streaming-real": "node tests/funasr-streaming-real.mjs",
+    "test:e2e:funasr-models": "npm run build && node tests/electron-funasr-model-manager.mjs",
+    "test:watch": "vitest",
+    "preview": "vite preview",
+    "start": "electron .",
+    "package:mac": "npm run build:mac",
+    "package:win": "npm run build:windows"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "latest",
+    "lucide-react": "latest",
+    "mammoth": "latest",
+    "pinyin-pro": "3.29.1",
+    "react": "latest",
+    "react-dom": "latest",
+    "sherpa-onnx-node": "1.13.3"
+  },
+  "optionalDependencies": {
+    "sherpa-onnx-darwin-arm64": "1.13.3",
+    "sherpa-onnx-win-x64": "1.13.3"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "concurrently": "latest",
+    "cross-env": "latest",
+    "electron": "latest",
+    "electron-builder": "latest",
+    "playwright": "^1.62.1",
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "latest",
+    "wait-on": "latest"
+  },
+  "build": {
+    "appId": "com.teleprompter.studio",
+    "productName": "Teleprompter Studio",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "node_modules/sherpa-onnx-*/*"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "files": [
+        "dist/**/*",
+        "dist-electron/**/*",
+        "package.json",
+        "!node_modules/sherpa-onnx-win-x64/**/*"
+      ],
+      "category": "public.app-category.video",
+      "entitlements": "native/macos/entitlements.mac.plist",
+      "entitlementsInherit": "native/macos/entitlements.mac.inherit.plist",
+      "hardenedRuntime": true,
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "用于在本机识别朗读内容并自动跟随提词稿，音频不会上传。",
+        "NSSpeechRecognitionUsageDescription": "用于在本机识别朗读位置并自动翻页，转写文本不会上传。"
+      },
+      "extraResources": [
+        {
+          "from": "native/macos/build/TeleprompterSpeech.app",
+          "to": "native/TeleprompterSpeech.app",
+          "filter": [
+            "**/*"
+          ]
+        }
+      ],
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "files": [
+        "dist/**/*",
+        "dist-electron/**/*",
+        "package.json",
+        "!node_modules/sherpa-onnx-darwin-arm64/**/*"
+      ],
+      "extraResources": [
+        {
+          "from": "native/windows/TeleprompterSpeech.ps1",
+          "to": "native/windows/TeleprompterSpeech.ps1"
+        }
+      ],
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    }
+  }
+}
