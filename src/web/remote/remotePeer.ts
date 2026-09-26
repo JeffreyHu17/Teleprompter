@@ -162,6 +162,16 @@ export class RemotePeer {
           this.update({ latencyMs: Math.max(0, Date.now() - message.sentAt) });
           return;
         }
+        if (message.type === 'state' && this.role === 'display') {
+          const displayLayout = getBrowserState().layout;
+          receiveBrowserSyncMessage(message);
+          if (displayLayout) {
+            const layoutMessage: BrowserSyncMessage = { type: 'command', command: { type: 'reportLayout', layout: displayLayout } };
+            receiveBrowserSyncMessage(layoutMessage);
+            if (channel.readyState === 'open') channel.send(JSON.stringify(layoutMessage));
+          }
+          return;
+        }
         receiveBrowserSyncMessage(message);
       } catch (error) {
         this.update({ error: error instanceof Error ? error.message : String(error) });
