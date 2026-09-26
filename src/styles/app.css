@@ -2696,3 +2696,203 @@ kbd {
     min-height: 56px;
   }
 }
+
+
+/* Refined remote display pairing UI. */
+.remote-display-pairing {
+  padding: clamp(14px, 3vw, 28px);
+}
+
+.remote-display-card {
+  width: min(560px, 100%);
+  max-height: min(780px, calc(100dvh - 28px));
+  overflow-y: auto;
+  padding: clamp(20px, 4vw, 30px);
+  border: 1px solid var(--line-strong);
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, rgba(154, 199, 104, 0.035), transparent 34%),
+    var(--surface-1);
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.5);
+}
+
+.remote-display-header {
+  text-align: center;
+}
+
+.remote-display-header h1 {
+  margin: 10px 0 8px;
+  font-size: clamp(28px, 7vw, 42px);
+  line-height: 1.08;
+}
+
+.remote-display-header p {
+  max-width: 440px;
+  margin: 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.65;
+}
+
+.remote-display-connect,
+.remote-display-answer {
+  margin-top: 24px;
+}
+
+.remote-display-pairing button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.remote-display-pairing button svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: block;
+}
+
+.remote-display-pairing .remote-scan-button {
+  width: 100%;
+  min-height: 58px;
+  margin: 0;
+  border-color: transparent;
+  background: var(--green);
+  color: #101210;
+  font-weight: 750;
+  font-size: 16px;
+}
+
+.remote-display-pairing .remote-scan-button svg {
+  width: 22px;
+  height: 22px;
+  flex-basis: 22px;
+}
+
+.remote-display-divider {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 20px 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.remote-display-divider::before,
+.remote-display-divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--line);
+}
+
+.remote-display-divider span {
+  padding: 0 10px;
+}
+
+.remote-display-manual-input {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-align: left;
+}
+
+.remote-display-manual-input textarea {
+  min-height: 104px;
+  margin: 0;
+}
+
+.remote-display-connect-button {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.remote-display-connect-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.remote-display-qr-wrap {
+  display: grid;
+  place-items: center;
+  padding: 6px 0 4px;
+}
+
+.remote-display-qr-wrap .remote-qr {
+  margin: 0;
+}
+
+.remote-display-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.remote-display-manual {
+  margin-top: 14px;
+  text-align: left;
+}
+
+.remote-display-manual summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.remote-display-manual summary::-webkit-details-marker {
+  display: none;
+}
+
+.remote-display-manual summary svg {
+  width: 15px;
+  height: 15px;
+}
+
+.remote-display-manual textarea {
+  margin-top: 9px;
+  min-height: 90px;
+}
+
+.remote-display-status {
+  margin: 14px 0 0;
+  text-align: center;
+  font-size: 11px;
+}
+
+@media (max-width: 520px) {
+  .remote-display-pairing {
+    place-items: stretch;
+    padding: 0;
+  }
+
+  .remote-display-card {
+    width: 100%;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    border: 0;
+    border-radius: 0;
+    padding: max(22px, env(safe-area-inset-top)) 18px max(22px, env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  .remote-display-header h1 {
+    font-size: 34px;
+  }
+}
