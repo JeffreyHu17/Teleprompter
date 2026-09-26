@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, FlipHorizontal2, Maximize2, Minus, Pause, Play, Plus } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
-import type { LayoutReport, MirrorMode, SessionCommand } from '../types/session';
+import type { LayoutReport, MirrorMode, ScriptAnchor, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
-import { anchorAt } from '../core/session';
+import { anchorAt, focusAnchorForState } from '../core/session';
 
 interface DisplayPointerState {
   pointerId: number;
@@ -28,6 +28,12 @@ export function DisplayView() {
   const pointerRef = useRef<DisplayPointerState | null>(null);
   const hideTimerRef = useRef<number | null>(null);
   const clickTimerRef = useRef<number | null>(null);
+  const focusRestoreTimerRef = useRef<number | null>(null);
+  const pendingFocusAnchorRef = useRef<{
+    anchor: ScriptAnchor;
+    viewportWidth: number;
+    viewportHeight: number;
+  } | null>(null);
 
   useEffect(() => {
     const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -36,6 +42,22 @@ export function DisplayView() {
   }, []);
 
   const reportLayout = useCallback((layout: LayoutReport) => {
+    const pending = pendingFocusAnchorRef.current;
+    const viewportChanged = Boolean(
+      pending
+      && (layout.viewportWidth !== pending.viewportWidth || layout.viewportHeight !== pending.viewportHeight)
+    );
+
+    if (pending && viewportChanged) {
+      pendingFocusAnchorRef.current = null;
+      if (focusRestoreTimerRef.current !== null) {
+        window.clearTimeout(focusRestoreTimerRef.current);
+        focusRestoreTimerRef.current = null;
+      }
+      command({ type: 'reportLayout', layout, preserveFocusAnchor: pending.anchor });
+      return;
+    }
+
     command({ type: 'reportLayout', layout });
   }, [command]);
 
@@ -54,6 +76,7 @@ export function DisplayView() {
     return () => {
       if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
       if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+      if (focusRestoreTimerRef.current !== null) window.clearTimeout(focusRestoreTimerRef.current);
     };
   }, [revealControls]);
 
@@ -79,13 +102,36 @@ export function DisplayView() {
     };
   }, []);
 
-  const toggleFullScreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      void document.documentElement.requestFullscreen().catch(() => {});
+  const toggleFullScreen = useCallback(async () => {
+    if (state.playbackMode === 'fixed' && state.layout) {
+      pendingFocusAnchorRef.current = {
+        anchor: focusAnchorForState(state),
+        viewportWidth: state.layout.viewportWidth,
+        viewportHeight: state.layout.viewportHeight,
+      };
+      if (focusRestoreTimerRef.current !== null) window.clearTimeout(focusRestoreTimerRef.current);
+      focusRestoreTimerRef.current = window.setTimeout(() => {
+        pendingFocusAnchorRef.current = null;
+        focusRestoreTimerRef.current = null;
+      }, 1500);
     } else {
-      void document.exitFullscreen().catch(() => {});
+      pendingFocusAnchorRef.current = null;
     }
-  }, []);
+
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      pendingFocusAnchorRef.current = null;
+      if (focusRestoreTimerRef.current !== null) {
+        window.clearTimeout(focusRestoreTimerRef.current);
+        focusRestoreTimerRef.current = null;
+      }
+    }
+  }, [state]);
 
   const schedulePlayToggle = useCallback(() => {
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
@@ -154,7 +200,7 @@ export function DisplayView() {
       clickTimerRef.current = null;
     }
     revealControls();
-    toggleFullScreen();
+    void toggleFullScreen();
   }, [revealControls, toggleFullScreen]);
 
   useEffect(() => {
@@ -194,7 +240,7 @@ export function DisplayView() {
       } else if (isHome) {
         next = { type: 'seek', anchor: anchorAt(state.document, 0) };
       } else if (event.key === 'f' || event.key === 'F') {
-        toggleFullScreen();
+        void toggleFullScreen();
         event.preventDefault();
         event.stopPropagation();
         revealControls();
@@ -290,7 +336,7 @@ export function DisplayView() {
         >
           <FlipHorizontal2 />
         </button>
-        <button title="全屏" aria-label="全屏" onClick={() => { revealControls(); toggleFullScreen(); }}><Maximize2 /></button>
+        <button title="全屏" aria-label="全屏" onClick={() => { revealControls(); void toggleFullScreen(); }}><Maximize2 /></button>
       </div>
     </div>
   );
