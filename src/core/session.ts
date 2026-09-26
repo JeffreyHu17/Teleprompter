@@ -221,13 +221,42 @@ function navigatePage(state: SessionState, direction: -1 | 1): { anchor: ScriptA
   };
 }
 
-function scrollOffsetForAnchor(state: SessionState, anchor: ScriptAnchor): number {
-  const start = state.layout?.paragraphScrollOffsets?.[anchor.paragraphIndex] ?? state.scrollOffsetPx;
+function scrollOffsetForAnchor(state: SessionState, anchor: ScriptAnchor, layout = state.layout): number {
+  const start = layout?.paragraphScrollOffsets?.[anchor.paragraphIndex] ?? state.scrollOffsetPx;
   const paragraph = state.document.paragraphs[anchor.paragraphIndex];
   const fallbackEnd = start + state.typography.fontSize * state.typography.lineHeight;
-  const end = state.layout?.paragraphScrollOffsets?.[anchor.paragraphIndex + 1] ?? fallbackEnd;
+  const end = layout?.paragraphScrollOffsets?.[anchor.paragraphIndex + 1] ?? fallbackEnd;
   const relative = paragraph?.text.length ? anchor.charOffset / paragraph.text.length : 0;
   return start + (end - start) * relative;
+}
+
+export function focusAnchorForState(state: SessionState): ScriptAnchor {
+  if (state.playbackMode === 'ai') return state.anchor;
+
+  const layout = state.layout;
+  const offsets = layout?.paragraphScrollOffsets ?? [];
+  if (!layout || !offsets.length) return state.anchor;
+
+  const lineCenterOffset = state.typography.fontSize * state.typography.lineHeight / 2;
+  const focusStageOffset = Math.max(0, state.scrollOffsetPx + lineCenterOffset);
+
+  let paragraphIndex = 0;
+  for (let index = 0; index < offsets.length; index += 1) {
+    if (offsets[index] <= focusStageOffset) paragraphIndex = index;
+    else break;
+  }
+  paragraphIndex = Math.min(paragraphIndex, state.document.paragraphs.length - 1);
+
+  const paragraph = state.document.paragraphs[paragraphIndex];
+  if (!paragraph) return state.anchor;
+
+  const start = offsets[paragraphIndex] ?? 0;
+  const nextStart = offsets[paragraphIndex + 1]
+    ?? Math.max(start + state.typography.fontSize * state.typography.lineHeight, layout.documentHeight);
+  const relative = Math.max(0, Math.min(1, (focusStageOffset - start) / Math.max(1, nextStart - start)));
+  const charOffset = Math.round(paragraph.text.length * relative);
+
+  return anchorAt(state.document, paragraph.startOffset + charOffset);
 }
 
 export function sessionReducer(state: SessionState, command: SessionCommand): SessionState {
@@ -389,8 +418,8 @@ export function sessionReducer(state: SessionState, command: SessionCommand): Se
         speech: { ...state.speech, ...command.patch },
       };
       break;
-    case 'reportLayout':
-      if (
+    case 'reportLayout': {
+      const equivalent = Boolean(
         state.layout
         && state.layout.documentRevision === command.layout.documentRevision
         && state.layout.viewportWidth === command.layout.viewportWidth
@@ -403,9 +432,19 @@ export function sessionReducer(state: SessionState, command: SessionCommand): Se
         && state.layout.pageAnchors.every((anchor, index) => (
           anchor.globalOffset === command.layout.pageAnchors[index]?.globalOffset
         ))
-      ) return state;
+      );
+      if (equivalent && !command.preserveFocusAnchor) return state;
+
       patch = { layout: command.layout };
+      if (command.preserveFocusAnchor && state.playbackMode === 'fixed') {
+        const lineCenterOffset = state.typography.fontSize * state.typography.lineHeight / 2;
+        const anchorStageOffset = scrollOffsetForAnchor(state, command.preserveFocusAnchor, command.layout);
+        const maxScroll = Math.max(0, command.layout.documentHeight - state.typography.fontSize * state.typography.lineHeight);
+        patch.scrollOffsetPx = Math.max(0, Math.min(maxScroll, anchorStageOffset - lineCenterOffset));
+        patch.anchor = command.preserveFocusAnchor;
+      }
       break;
+    }
     case 'setFocusAdjusting':
       patch = { focusAdjusting: command.adjusting };
       break;
