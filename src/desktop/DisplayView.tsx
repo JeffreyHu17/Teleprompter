@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTeleprompter } from './useTeleprompter';
 import type { LayoutReport, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
 import { anchorAt } from '../core/session';
+import { RemoteDisplayPairing } from '../web/RemoteDisplayPairing';
 
-export function DisplayView() {
+export function DisplayView({ remoteMode = false }: { remoteMode?: boolean }) {
   const { state, command } = useTeleprompter();
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  const touchRef = useRef<{ pointerId: number; y: number } | null>(null);
 
   useEffect(() => {
     const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -38,6 +40,32 @@ export function DisplayView() {
       document.removeEventListener('visibilitychange', handleVisibility);
       void wakeLock?.release();
     };
+  }, []);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType !== 'touch') return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    touchRef.current = { pointerId: event.pointerId, y: event.clientY };
+  }, []);
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const touch = touchRef.current;
+    if (!touch || touch.pointerId !== event.pointerId) return;
+    const delta = touch.y - event.clientY;
+    touch.y = event.clientY;
+    if (Math.abs(delta) < 0.5) return;
+    event.preventDefault();
+    command({ type: 'scrollStep', deltaPx: delta });
+  }, [command]);
+
+  const endTouch = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (touchRef.current?.pointerId !== event.pointerId) return;
+    touchRef.current = null;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // Pointer capture can already be released by the browser.
+    }
   }, []);
 
   const toggleFullScreen = useCallback(() => {
@@ -109,13 +137,22 @@ export function DisplayView() {
   }, [command, state.isPlaying, state.document, toggleFullScreen]);
 
   return (
-    <div onDoubleClick={toggleFullScreen} style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+    <div
+      className="display-touch-surface"
+      onDoubleClick={toggleFullScreen}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={endTouch}
+      onPointerCancel={endTouch}
+      style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}
+    >
       <PrompterSurface
         state={state}
         viewportWidth={viewport.width}
         viewportHeight={viewport.height}
         onLayout={reportLayout}
       />
+      {remoteMode && <RemoteDisplayPairing />}
     </div>
   );
 }
