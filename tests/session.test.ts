@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anchorAt, createDocument, initialSessionState, sessionReducer } from '../src/core/session';
+import { anchorAt, createDocument, focusAnchorForState, initialSessionState, sessionReducer } from '../src/core/session';
 
 describe('session reducer', () => {
   it('uses 荷塘月色 as the default script', () => {
@@ -96,6 +96,53 @@ describe('session reducer', () => {
     const changed = sessionReducer(withLayout, { type: 'setTypography', patch: { sidePadding: 300 } });
     expect(changed.layout).toBe(withLayout.layout);
     expect(changed.typography.sidePadding).toBe(300);
+  });
+
+  it('preserves the content at the focus line when the viewport is reflowed', () => {
+    let state = initialSessionState();
+    state = sessionReducer(state, { type: 'setDocument', name: 'focus-test', text: 'abcdefghij\n\nklmnopqrst' });
+    state = sessionReducer(state, { type: 'setTypography', patch: { fontSize: 20, lineHeight: 1 } });
+
+    state = sessionReducer(state, {
+      type: 'reportLayout',
+      layout: {
+        revision: 1,
+        documentRevision: state.document.revision,
+        pageAnchors: [anchorAt(state.document, 0)],
+        pageCount: 1,
+        viewportWidth: 800,
+        viewportHeight: 600,
+        documentHeight: 200,
+        textWidthPx: 600,
+        pageScrollOffsets: [0],
+        paragraphScrollOffsets: [0, 100],
+      },
+    });
+    state = sessionReducer(state, { type: 'scrollStep', deltaPx: 40 });
+
+    const focusAnchor = focusAnchorForState(state);
+    expect(focusAnchor.paragraphIndex).toBe(0);
+    expect(focusAnchor.charOffset).toBe(5);
+
+    state = sessionReducer(state, {
+      type: 'reportLayout',
+      preserveFocusAnchor: focusAnchor,
+      layout: {
+        revision: 2,
+        documentRevision: state.document.revision,
+        pageAnchors: [anchorAt(state.document, 0)],
+        pageCount: 1,
+        viewportWidth: 1200,
+        viewportHeight: 800,
+        documentHeight: 400,
+        textWidthPx: 900,
+        pageScrollOffsets: [0],
+        paragraphScrollOffsets: [0, 200],
+      },
+    });
+
+    expect(state.anchor.globalOffset).toBe(focusAnchor.globalOffset);
+    expect(state.scrollOffsetPx).toBe(90);
   });
 
   it('does not revise state before display layout is available', () => {
