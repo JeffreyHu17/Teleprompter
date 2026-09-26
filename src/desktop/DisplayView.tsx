@@ -25,6 +25,7 @@ export function DisplayView() {
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [controlsVisible, setControlsVisible] = useState(true);
   const [mirrorMenuOpen, setMirrorMenuOpen] = useState(false);
+  const stateRef = useRef(state);
   const pointerRef = useRef<DisplayPointerState | null>(null);
   const hideTimerRef = useRef<number | null>(null);
   const clickTimerRef = useRef<number | null>(null);
@@ -34,6 +35,10 @@ export function DisplayView() {
     viewportWidth: number;
     viewportHeight: number;
   } | null>(null);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -102,22 +107,35 @@ export function DisplayView() {
     };
   }, []);
 
-  const toggleFullScreen = useCallback(async () => {
-    if (state.playbackMode === 'fixed' && state.layout) {
-      pendingFocusAnchorRef.current = {
-        anchor: focusAnchorForState(state),
-        viewportWidth: state.layout.viewportWidth,
-        viewportHeight: state.layout.viewportHeight,
-      };
-      if (focusRestoreTimerRef.current !== null) window.clearTimeout(focusRestoreTimerRef.current);
-      focusRestoreTimerRef.current = window.setTimeout(() => {
-        pendingFocusAnchorRef.current = null;
-        focusRestoreTimerRef.current = null;
-      }, 1500);
-    } else {
+  const armFocusRestore = useCallback(() => {
+    const current = stateRef.current;
+    if (current.playbackMode !== 'fixed' || !current.layout) {
       pendingFocusAnchorRef.current = null;
+      return;
     }
 
+    pendingFocusAnchorRef.current = {
+      anchor: focusAnchorForState(current),
+      viewportWidth: current.layout.viewportWidth,
+      viewportHeight: current.layout.viewportHeight,
+    };
+    if (focusRestoreTimerRef.current !== null) window.clearTimeout(focusRestoreTimerRef.current);
+    focusRestoreTimerRef.current = window.setTimeout(() => {
+      pendingFocusAnchorRef.current = null;
+      focusRestoreTimerRef.current = null;
+    }, 1500);
+  }, []);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      if (!pendingFocusAnchorRef.current) armFocusRestore();
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, [armFocusRestore]);
+
+  const toggleFullScreen = useCallback(async () => {
+    armFocusRestore();
     try {
       if (!document.fullscreenElement) {
         await document.documentElement.requestFullscreen();
@@ -131,7 +149,7 @@ export function DisplayView() {
         focusRestoreTimerRef.current = null;
       }
     }
-  }, [state]);
+  }, [armFocusRestore]);
 
   const schedulePlayToggle = useCallback(() => {
     if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
