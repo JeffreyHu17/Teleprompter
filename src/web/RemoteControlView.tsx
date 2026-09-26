@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Copy, Minus, MonitorUp, Pause, Play, Plus, QrCode as QrIcon, RotateCcw } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Copy, Minus, MonitorUp, Pause, Play, Plus, QrCode as QrIcon, RotateCcw, X } from 'lucide-react';
 import { dispatchBrowserCommand, getBrowserState, subscribeBrowserState } from '../desktop/browserSession';
 import { DEFAULT_TYPOGRAPHY } from '../core/session';
 import type { LayoutReport, MirrorMode, SessionCommand, SessionState } from '../types/session';
@@ -50,6 +50,7 @@ export function RemoteControlView() {
   const [pairingUrl, setPairingUrl] = useState('');
   const [answer, setAnswer] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [pairingQrOpen, setPairingQrOpen] = useState(false);
   const [draft, setDraft] = useState(state.document.rawText);
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
@@ -57,6 +58,9 @@ export function RemoteControlView() {
   useEffect(() => peer.subscribe(setPeerState), [peer]);
   useEffect(() => () => peer.close(), [peer]);
   useEffect(() => setDraft(state.document.rawText), [state.document.revision]);
+  useEffect(() => {
+    if (peerState.status === 'connected') setPairingQrOpen(false);
+  }, [peerState.status]);
 
   const remoteConnected = peerState.status === 'connected';
 
@@ -77,6 +81,7 @@ export function RemoteControlView() {
     try {
       const offer = await peer.createOffer();
       setPairingUrl(buildDisplayPairingUrl(offer));
+      setPairingQrOpen(true);
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
@@ -173,9 +178,9 @@ export function RemoteControlView() {
             )}
 
             {pairingUrl && !remoteConnected && <>
-              <p>显示设备可直接进入“远程模式 → 显示端”并调用摄像头扫描，也可以用系统相机扫描下面的二维码。</p>
-              <QrCode value={pairingUrl} label="显示设备配对二维码" />
+              <p>配对二维码已生成。建议让显示设备直接扫描全屏二维码；显示端生成返回码后，再用本页扫描完成连接。</p>
               <div className="remote-pair-actions">
+                <button className="remote-primary" onClick={() => setPairingQrOpen(true)}><QrIcon />显示配对二维码</button>
                 <button onClick={() => setScannerOpen(true)}><QrIcon />扫描显示端返回码</button>
                 <button onClick={() => void copyPairingUrl()}><Copy />复制配对链接</button>
                 <button onClick={() => void startPairing()}><RotateCcw />重新生成</button>
@@ -233,6 +238,40 @@ export function RemoteControlView() {
           </div>
         </details>
       </div>
+
+      {pairingQrOpen && pairingUrl && !remoteConnected && (
+        <div
+          className="remote-pairing-qr-backdrop"
+          role="presentation"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) setPairingQrOpen(false);
+          }}
+        >
+          <section className="remote-pairing-qr-dialog" role="dialog" aria-modal="true" aria-labelledby="remote-pairing-qr-title">
+            <header>
+              <div>
+                <span className="eyebrow">PAIRING</span>
+                <h2 id="remote-pairing-qr-title">显示设备扫码配对</h2>
+              </div>
+              <button className="remote-pairing-qr-close" title="关闭二维码" aria-label="关闭二维码" onClick={() => setPairingQrOpen(false)}>
+                <X />
+              </button>
+            </header>
+
+            <p>在显示设备上使用系统相机，或进入“远程模式 → 显示端”扫描此二维码。</p>
+
+            <div className="remote-pairing-qr-code">
+              <QrCode value={pairingUrl} label="显示设备配对二维码" size={340} />
+            </div>
+
+            <div className="remote-pairing-qr-actions">
+              <button onClick={() => void copyPairingUrl()}><Copy />复制配对链接</button>
+              <button onClick={() => void startPairing()}><RotateCcw />重新生成</button>
+            </div>
+            {copyStatus && <p className={copyStatus.includes('失败') ? 'remote-error' : 'remote-copy-status'}>{copyStatus}</p>}
+          </section>
+        </div>
+      )}
 
       {scannerOpen && (
         <QrScanner
