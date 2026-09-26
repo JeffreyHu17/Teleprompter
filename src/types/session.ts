@@ -174,7 +174,7 @@ export type SessionCommand =
   | { type: 'setDisplay'; displayId: string | null }
   | { type: 'setDisplayOpen'; open: boolean }
   | { type: 'setTracker'; status: SessionState['trackerStatus']; patch?: Partial<SpeechTrackerState> }
-  | { type: 'reportLayout'; layout: LayoutReport }
+  | { type: 'reportLayout'; layout: LayoutReport; preserveFocusAnchor?: ScriptAnchor }
   | { type: 'setFocusAdjusting'; adjusting: boolean }
   | { type: 'tick'; elapsedMs: number };
 
