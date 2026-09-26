@@ -1,13 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Maximize2, Minus, Pause, Play, Plus } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
 import type { LayoutReport, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
 import { anchorAt } from '../core/session';
 
+interface DisplayPointerState {
+  pointerId: number;
+  pointerType: string;
+  startY: number;
+  y: number;
+  moved: boolean;
+}
+
 export function DisplayView() {
   const { state, command } = useTeleprompter();
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
-  const touchRef = useRef<{ pointerId: number; y: number } | null>(null);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const pointerRef = useRef<DisplayPointerState | null>(null);
+  const hideTimerRef = useRef<number | null>(null);
+  const clickTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -18,6 +30,23 @@ export function DisplayView() {
   const reportLayout = useCallback((layout: LayoutReport) => {
     command({ type: 'reportLayout', layout });
   }, [command]);
+
+  const revealControls = useCallback(() => {
+    setControlsVisible(true);
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = window.setTimeout(() => {
+      setControlsVisible(false);
+      hideTimerRef.current = null;
+    }, 3000);
+  }, []);
+
+  useEffect(() => {
+    revealControls();
+    return () => {
+      if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+      if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+    };
+  }, [revealControls]);
 
   useEffect(() => {
     let wakeLock: any = null;
@@ -41,32 +70,6 @@ export function DisplayView() {
     };
   }, []);
 
-  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.pointerType !== 'touch') return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    touchRef.current = { pointerId: event.pointerId, y: event.clientY };
-  }, []);
-
-  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const touch = touchRef.current;
-    if (!touch || touch.pointerId !== event.pointerId) return;
-    const delta = touch.y - event.clientY;
-    touch.y = event.clientY;
-    if (Math.abs(delta) < 0.5) return;
-    event.preventDefault();
-    command({ type: 'scrollStep', deltaPx: delta });
-  }, [command]);
-
-  const endTouch = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (touchRef.current?.pointerId !== event.pointerId) return;
-    touchRef.current = null;
-    try {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    } catch {
-      // Pointer capture can already be released by the browser.
-    }
-  }, []);
-
   const toggleFullScreen = useCallback(() => {
     if (!document.fullscreenElement) {
       void document.documentElement.requestFullscreen().catch(() => {});
@@ -74,6 +77,76 @@ export function DisplayView() {
       void document.exitFullscreen().catch(() => {});
     }
   }, []);
+
+  const schedulePlayToggle = useCallback(() => {
+    if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = window.setTimeout(() => {
+      command({ type: 'togglePlay' });
+      clickTimerRef.current = null;
+    }, 220);
+  }, [command]);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    revealControls();
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-display-control]')) return;
+
+    pointerRef.current = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      startY: event.clientY,
+      y: event.clientY,
+      moved: false,
+    };
+
+    if (event.pointerType === 'touch') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  }, [revealControls]);
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    revealControls();
+    const pointer = pointerRef.current;
+    if (!pointer || pointer.pointerId !== event.pointerId) return;
+
+    if (Math.abs(event.clientY - pointer.startY) > 6) pointer.moved = true;
+    if (pointer.pointerType !== 'touch') return;
+
+    const delta = pointer.y - event.clientY;
+    pointer.y = event.clientY;
+    if (Math.abs(delta) < 0.5) return;
+    event.preventDefault();
+    command({ type: 'scrollStep', deltaPx: delta });
+  }, [command, revealControls]);
+
+  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const pointer = pointerRef.current;
+    if (!pointer || pointer.pointerId !== event.pointerId) return;
+    pointerRef.current = null;
+
+    if (pointer.pointerType === 'touch') {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture can already be released by the browser.
+      }
+    }
+
+    if (!pointer.moved) schedulePlayToggle();
+  }, [schedulePlayToggle]);
+
+  const handlePointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerRef.current?.pointerId === event.pointerId) pointerRef.current = null;
+  }, []);
+
+  const handleDoubleClick = useCallback(() => {
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    revealControls();
+    toggleFullScreen();
+  }, [revealControls, toggleFullScreen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -115,6 +188,7 @@ export function DisplayView() {
         toggleFullScreen();
         event.preventDefault();
         event.stopPropagation();
+        revealControls();
         return;
       } else if (event.key === 'Escape') {
         if (document.fullscreenElement) {
@@ -128,21 +202,22 @@ export function DisplayView() {
         event.preventDefault();
         event.stopPropagation();
         command(next);
+        revealControls();
       }
     };
 
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [command, state.isPlaying, state.document, toggleFullScreen]);
+  }, [command, revealControls, state.isPlaying, state.document, toggleFullScreen]);
 
   return (
     <div
       className="display-touch-surface"
-      onDoubleClick={toggleFullScreen}
+      onDoubleClick={handleDoubleClick}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
-      onPointerUp={endTouch}
-      onPointerCancel={endTouch}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
       style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}
     >
       <PrompterSurface
@@ -151,6 +226,25 @@ export function DisplayView() {
         viewportHeight={viewport.height}
         onLayout={reportLayout}
       />
+
+      <div
+        className={`display-control-bar ${controlsVisible ? 'is-visible' : ''}`}
+        data-display-control
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          revealControls();
+        }}
+      >
+        <button title="上一页" aria-label="上一页" onClick={() => command({ type: 'navigatePage', direction: -1 })}><ChevronLeft /></button>
+        <button title="降低速度" aria-label="降低速度" onClick={() => command({ type: 'adjustSpeed', delta: -10 })}><Minus /></button>
+        <button className="display-control-play" title="播放或暂停" aria-label="播放或暂停" onClick={() => command({ type: 'togglePlay' })}>
+          {state.isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
+        </button>
+        <span>{Math.round(state.scrollSpeedPxPerSecond)} px/s</span>
+        <button title="提高速度" aria-label="提高速度" onClick={() => command({ type: 'adjustSpeed', delta: 10 })}><Plus /></button>
+        <button title="下一页" aria-label="下一页" onClick={() => command({ type: 'navigatePage', direction: 1 })}><ChevronRight /></button>
+        <button title="全屏" aria-label="全屏" onClick={() => { revealControls(); toggleFullScreen(); }}><Maximize2 /></button>
+      </div>
     </div>
   );
 }
