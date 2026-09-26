@@ -50,7 +50,8 @@ export function getBrowserState(): SessionState {
 }
 
 function publishState(next: SessionState): void {
-  publishState(next);
+  state = next;
+  listeners.forEach((listener) => listener(state));
 }
 
 export function registerBrowserSyncTransport(send: (message: BrowserSyncMessage) => void): () => void {
@@ -69,8 +70,7 @@ export function receiveBrowserSyncMessage(message: BrowserSyncMessage): void {
 export function dispatchBrowserCommand(command: SessionCommand, broadcast = true): void {
   const next = sessionReducer(state, command);
   if (next === state) return;
-  state = next;
-  listeners.forEach((listener) => listener(state));
+  publishState(next);
 
   if (!['tick', 'reportLayout', 'setTracker', 'setDisplayOpen', 'setPlaying', 'togglePlay', 'seek', 'scrollStep', 'setFocusAdjusting'].includes(command.type)) {
     schedulePersist();
