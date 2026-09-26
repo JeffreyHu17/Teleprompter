@@ -1,8 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { PrompterSurface } from '../components/PrompterSurface';
-import type { SessionState } from '../types/session';
+import type { LayoutReport, SessionState } from '../types/session';
 
-export function RemoteProgramPreview({ state }: { state: SessionState }) {
+export function RemoteProgramPreview({
+  state,
+  onLayout,
+}: {
+  state: SessionState;
+  onLayout?: (layout: LayoutReport) => void;
+}) {
   const frameRef = useRef<HTMLDivElement>(null);
   const width = Math.max(320, state.layout?.viewportWidth ?? 1280);
   const height = Math.max(240, state.layout?.viewportHeight ?? 720);
@@ -41,6 +47,7 @@ export function RemoteProgramPreview({ state }: { state: SessionState }) {
             viewportHeight={height}
             className="remote-program-surface"
             showTextBounds
+            onLayout={onLayout}
           />
         </div>
       </div>
