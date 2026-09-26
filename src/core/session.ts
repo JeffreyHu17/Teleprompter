@@ -4,6 +4,7 @@ import type {
   ScriptDocument,
   SessionCommand,
   SessionState,
+  TypographySettings,
 } from '../types/session.js';
 
 export const LEGACY_SAMPLE_TEXT = `欢迎使用 Teleprompter Studio。
@@ -83,6 +84,21 @@ export function anchorAt(document: ScriptDocument, globalOffset: number): Script
   };
 }
 
+export const DEFAULT_TYPOGRAPHY: TypographySettings = {
+  fontFamily: 'system-ui',
+  fontSize: 56,
+  fontWeight: 600,
+  lineHeight: 1.55,
+  paragraphSpacing: 1.1,
+  sidePadding: 140,
+  alignment: 'center',
+  foreground: '#f4f4ef',
+  background: '#050606',
+  focusColor: '#f2c94c',
+  focusPosition: 42,
+  focusOpacity: 0.16,
+};
+
 export function initialSessionState(platform: 'macos' | 'windows' | 'android' | 'browser' = 'macos'): SessionState {
   const document = createDocument('荷塘月色', SAMPLE_TEXT);
   return {
@@ -103,20 +119,7 @@ export function initialSessionState(platform: 'macos' | 'windows' | 'android' | 
     },
     scrollSpeedPxPerSecond: 30,
     mirrorMode: 'horizontal',
-    typography: {
-      fontFamily: 'system-ui',
-      fontSize: 56,
-      fontWeight: 600,
-      lineHeight: 1.55,
-      paragraphSpacing: 1.1,
-      sidePadding: 140,
-      alignment: 'center',
-      foreground: '#f4f4ef',
-      background: '#050606',
-      focusColor: '#f2c94c',
-      focusPosition: 42,
-      focusOpacity: 0.16,
-    },
+    typography: { ...DEFAULT_TYPOGRAPHY },
     selectedDisplayId: null,
     displayOpen: false,
     layout: null,
