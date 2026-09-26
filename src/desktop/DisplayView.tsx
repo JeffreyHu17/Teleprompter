@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Maximize2, Minus, Pause, Play, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, FlipHorizontal2, Maximize2, Minus, Pause, Play, Plus } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
-import type { LayoutReport, SessionCommand } from '../types/session';
+import type { LayoutReport, MirrorMode, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
 import { anchorAt } from '../core/session';
 
@@ -13,10 +13,18 @@ interface DisplayPointerState {
   moved: boolean;
 }
 
+const MIRROR_OPTIONS: Array<{ mode: MirrorMode; label: string }> = [
+  { mode: 'none', label: '正常' },
+  { mode: 'horizontal', label: '水平' },
+  { mode: 'vertical', label: '垂直' },
+  { mode: 'both', label: '双轴' },
+];
+
 export function DisplayView() {
   const { state, command } = useTeleprompter();
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [mirrorMenuOpen, setMirrorMenuOpen] = useState(false);
   const pointerRef = useRef<DisplayPointerState | null>(null);
   const hideTimerRef = useRef<number | null>(null);
   const clickTimerRef = useRef<number | null>(null);
@@ -36,6 +44,7 @@ export function DisplayView() {
     if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
     hideTimerRef.current = window.setTimeout(() => {
       setControlsVisible(false);
+      setMirrorMenuOpen(false);
       hideTimerRef.current = null;
     }, 3000);
   }, []);
@@ -228,6 +237,33 @@ export function DisplayView() {
       />
 
       <div
+        className={`display-mirror-menu ${controlsVisible && mirrorMenuOpen ? 'is-visible' : ''}`}
+        data-display-control
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          revealControls();
+        }}
+      >
+        <span>镜像模式</span>
+        <div>
+          {MIRROR_OPTIONS.map(({ mode, label }) => (
+            <button
+              key={mode}
+              className={state.mirrorMode === mode ? 'active' : ''}
+              aria-pressed={state.mirrorMode === mode}
+              onClick={() => {
+                command({ type: 'setMirror', mode });
+                setMirrorMenuOpen(false);
+                revealControls();
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
         className={`display-control-bar ${controlsVisible ? 'is-visible' : ''}`}
         data-display-control
         onPointerDown={(event) => {
@@ -243,6 +279,17 @@ export function DisplayView() {
         <span>{Math.round(state.scrollSpeedPxPerSecond)} px/s</span>
         <button title="提高速度" aria-label="提高速度" onClick={() => command({ type: 'adjustSpeed', delta: 10 })}><Plus /></button>
         <button title="下一页" aria-label="下一页" onClick={() => command({ type: 'navigatePage', direction: 1 })}><ChevronRight /></button>
+        <button
+          title="镜像模式"
+          aria-label="镜像模式"
+          aria-expanded={mirrorMenuOpen}
+          onClick={() => {
+            setMirrorMenuOpen((current) => !current);
+            revealControls();
+          }}
+        >
+          <FlipHorizontal2 />
+        </button>
         <button title="全屏" aria-label="全屏" onClick={() => { revealControls(); toggleFullScreen(); }}><Maximize2 /></button>
       </div>
     </div>
