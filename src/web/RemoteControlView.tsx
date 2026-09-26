@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Copy, Minus, MonitorUp, Pause, Play, Plus, QrCode as QrIcon, RotateCcw } from 'lucide-react';
 import { dispatchBrowserCommand, getBrowserState, subscribeBrowserState } from '../desktop/browserSession';
 import { DEFAULT_TYPOGRAPHY } from '../core/session';
-import type { SessionCommand, SessionState } from '../types/session';
+import type { MirrorMode, SessionCommand, SessionState } from '../types/session';
 import { RemoteProgramPreview } from './RemoteProgramPreview';
 import { QrCode } from './remote/QrCode';
 import { QrScanner } from './remote/QrScanner';
@@ -24,6 +24,13 @@ function statusLabel(snapshot: RemotePeerSnapshot): string {
   if (snapshot.status === 'disconnected') return '显示设备已断开';
   return '尚未连接显示设备';
 }
+
+const MIRROR_OPTIONS: Array<{ mode: MirrorMode; label: string }> = [
+  { mode: 'none', label: '正常' },
+  { mode: 'horizontal', label: '水平' },
+  { mode: 'vertical', label: '垂直' },
+  { mode: 'both', label: '双轴' },
+];
 
 function returnToSingleDeviceMode() {
   const url = new URL(window.location.href);
@@ -183,10 +190,22 @@ export function RemoteControlView() {
           <label>段落间距 <output>{state.typography.paragraphSpacing.toFixed(2)}</output><input type="range" min="0" max="3" step="0.05" value={state.typography.paragraphSpacing} onChange={(event) => command({ type: 'setTypography', patch: { paragraphSpacing: Number(event.target.value) } })} /></label>
           <label>左右间距 <output>{state.typography.sidePadding}px</output><input type="range" min="0" max="400" step="4" value={Math.min(400, state.typography.sidePadding)} onChange={(event) => command({ type: 'setTypography', patch: { sidePadding: Number(event.target.value) } })} /></label>
           <label>焦点位置 <output>{state.typography.focusPosition}%</output><input type="range" min="10" max="80" value={state.typography.focusPosition} onChange={(event) => command({ type: 'setTypography', patch: { focusPosition: Number(event.target.value) } })} /></label>
+          <div className="remote-mirror-setting">
+            <span>镜像模式</span>
+            <div className="remote-mirror-options">
+              {MIRROR_OPTIONS.map(({ mode, label }) => (
+                <button
+                  key={mode}
+                  className={state.mirrorMode === mode ? 'active' : ''}
+                  aria-pressed={state.mirrorMode === mode}
+                  onClick={() => command({ type: 'setMirror', mode })}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="remote-setting-actions">
-            <button onClick={() => command({ type: 'setMirror', mode: state.mirrorMode === 'horizontal' ? 'none' : 'horizontal' })}>
-              {state.mirrorMode === 'horizontal' ? '关闭水平镜像' : '开启水平镜像'}
-            </button>
             <button onClick={resetTypography}><RotateCcw />恢复默认排版</button>
           </div>
         </div>
