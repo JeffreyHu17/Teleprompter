@@ -3,9 +3,8 @@ import { useTeleprompter } from './useTeleprompter';
 import type { LayoutReport, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
 import { anchorAt } from '../core/session';
-import { RemoteDisplayPairing } from '../web/RemoteDisplayPairing';
 
-export function DisplayView({ remoteMode = false }: { remoteMode?: boolean }) {
+export function DisplayView() {
   const { state, command } = useTeleprompter();
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const touchRef = useRef<{ pointerId: number; y: number } | null>(null);
@@ -152,7 +151,6 @@ export function DisplayView({ remoteMode = false }: { remoteMode?: boolean }) {
         viewportHeight={viewport.height}
         onLayout={reportLayout}
       />
-      {remoteMode && <RemoteDisplayPairing />}
     </div>
   );
 }
