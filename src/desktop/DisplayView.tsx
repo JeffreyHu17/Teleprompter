@@ -32,6 +32,7 @@ export function DisplayView() {
   const focusRestoreTimerRef = useRef<number | null>(null);
   const pendingFocusAnchorRef = useRef<{
     anchor: ScriptAnchor;
+    documentRevision: number;
     viewportWidth: number;
     viewportHeight: number;
   } | null>(null);
@@ -48,6 +49,16 @@ export function DisplayView() {
 
   const reportLayout = useCallback((layout: LayoutReport) => {
     const pending = pendingFocusAnchorRef.current;
+    if (pending && layout.documentRevision !== pending.documentRevision) {
+      pendingFocusAnchorRef.current = null;
+      if (focusRestoreTimerRef.current !== null) {
+        window.clearTimeout(focusRestoreTimerRef.current);
+        focusRestoreTimerRef.current = null;
+      }
+      command({ type: 'reportLayout', layout });
+      return;
+    }
+
     const viewportChanged = Boolean(
       pending
       && (layout.viewportWidth !== pending.viewportWidth || layout.viewportHeight !== pending.viewportHeight)
@@ -116,6 +127,7 @@ export function DisplayView() {
 
     pendingFocusAnchorRef.current = {
       anchor: focusAnchorForState(current),
+      documentRevision: current.document.revision,
       viewportWidth: current.layout.viewportWidth,
       viewportHeight: current.layout.viewportHeight,
     };
@@ -212,7 +224,10 @@ export function DisplayView() {
     if (pointerRef.current?.pointerId === event.pointerId) pointerRef.current = null;
   }, []);
 
-  const handleDoubleClick = useCallback(() => {
+  const handleDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-display-control]')) return;
+
     if (clickTimerRef.current !== null) {
       window.clearTimeout(clickTimerRef.current);
       clickTimerRef.current = null;
