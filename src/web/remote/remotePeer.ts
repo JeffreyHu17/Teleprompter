@@ -70,9 +70,23 @@ export function buildDisplayPairingUrl(payload: string): string {
   return url.toString();
 }
 
+export function extractPairingPayload(value: string): string | null {
+  const normalized = value.trim();
+  if (!normalized) return null;
+  if (normalized.startsWith(PAIRING_PREFIX)) return normalized;
+
+  try {
+    const url = new URL(normalized, window.location.href);
+    const params = new URLSearchParams(url.hash.replace(/^#/, ''));
+    return params.get('pair');
+  } catch {
+    const params = new URLSearchParams(normalized.replace(/^#/, ''));
+    return params.get('pair');
+  }
+}
+
 export function pairingPayloadFromLocation(): string | null {
-  const params = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-  return params.get('pair');
+  return extractPairingPayload(window.location.href);
 }
 
 function waitForIceGathering(peer: RTCPeerConnection): Promise<void> {
