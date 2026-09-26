@@ -23,12 +23,16 @@ export function QrScanner({
     const start = async () => {
       try {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('当前浏览器无法调用摄像头');
-        stream = await navigator.mediaDevices.getUserMedia({
+        const acquiredStream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: 'environment' } },
           audio: false,
         });
-        if (cancelled || !videoRef.current) return;
-        videoRef.current.srcObject = stream;
+        if (cancelled || !videoRef.current) {
+          acquiredStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream = acquiredStream;
+        videoRef.current.srcObject = acquiredStream;
         await videoRef.current.play();
         setMessage(hint);
 
@@ -58,6 +62,7 @@ export function QrScanner({
 
         frame = requestAnimationFrame(scan);
       } catch (error) {
+        if (cancelled) return;
         const detail = error instanceof Error ? error.message : String(error);
         setMessage(`无法打开摄像头：${detail}。可改用复制 / 粘贴配对信息。`);
       }
