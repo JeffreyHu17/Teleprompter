@@ -1,3 +1,4 @@
+import { gzipSync, gunzipSync } from 'fflate';
 import {
   createBrowserSyncCommand,
   getBrowserState,
@@ -40,32 +41,21 @@ function base64UrlToBytes(value: string): Uint8Array {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0));
 }
 
-async function compress(bytes: Uint8Array): Promise<Uint8Array> {
-  if (typeof CompressionStream === 'undefined') return bytes;
-  const stream = new Blob([bytes]).stream().pipeThrough(new CompressionStream('gzip'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
-}
-
-async function decompress(bytes: Uint8Array): Promise<Uint8Array> {
-  if (typeof DecompressionStream === 'undefined') return bytes;
-  try {
-    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
-    return new Uint8Array(await new Response(stream).arrayBuffer());
-  } catch {
-    return bytes;
-  }
-}
-
 export async function encodePairingEnvelope(envelope: PairingEnvelope): Promise<string> {
   const raw = new TextEncoder().encode(JSON.stringify(envelope));
-  return PAIRING_PREFIX + bytesToBase64Url(await compress(raw));
+  return PAIRING_PREFIX + bytesToBase64Url(gzipSync(raw, { level: 6 }));
 }
 
 export async function decodePairingEnvelope(payload: string): Promise<PairingEnvelope> {
   const normalized = payload.trim();
   if (!normalized.startsWith(PAIRING_PREFIX)) throw new Error('无法识别配对信息');
   const encoded = normalized.slice(PAIRING_PREFIX.length);
-  const bytes = await decompress(base64UrlToBytes(encoded));
+  let bytes: Uint8Array;
+  try {
+    bytes = gunzipSync(base64UrlToBytes(encoded));
+  } catch {
+    throw new Error('配对信息损坏或不完整');
+  }
   const parsed = JSON.parse(new TextDecoder().decode(bytes)) as PairingEnvelope;
   if (parsed.version !== 1 || (parsed.kind !== 'offer' && parsed.kind !== 'answer') || !parsed.description) {
     throw new Error('配对信息版本不受支持');
