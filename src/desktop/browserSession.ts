@@ -20,6 +20,12 @@ function loadInitialState(): SessionState {
 
 let state = loadInitialState();
 const listeners = new Set<(next: SessionState) => void>();
+
+export type BrowserSyncMessage =
+  | { type: 'command'; command: SessionCommand }
+  | { type: 'state'; state: SessionState };
+
+const remoteSyncSenders = new Set<(message: BrowserSyncMessage) => void>();
 let lastTick = performance.now();
 let persistTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -43,6 +49,23 @@ export function getBrowserState(): SessionState {
   return state;
 }
 
+function publishState(next: SessionState): void {
+  publishState(next);
+}
+
+export function registerBrowserSyncTransport(send: (message: BrowserSyncMessage) => void): () => void {
+  remoteSyncSenders.add(send);
+  return () => remoteSyncSenders.delete(send);
+}
+
+export function receiveBrowserSyncMessage(message: BrowserSyncMessage): void {
+  if (message.type === 'state') {
+    publishState(message.state);
+    return;
+  }
+  dispatchBrowserCommand(message.command, false);
+}
+
 export function dispatchBrowserCommand(command: SessionCommand, broadcast = true): void {
   const next = sessionReducer(state, command);
   if (next === state) return;
@@ -53,20 +76,28 @@ export function dispatchBrowserCommand(command: SessionCommand, broadcast = true
     schedulePersist();
   }
 
-  if (broadcast && syncChannel && command.type !== 'tick') {
-    try {
-      syncChannel.postMessage({ type: 'command', command });
-    } catch {
-      // Ignore serialization issues
+  if (broadcast && command.type !== 'tick') {
+    const message: BrowserSyncMessage = { type: 'command', command };
+    if (syncChannel) {
+      try {
+        syncChannel.postMessage(message);
+      } catch {
+        // Ignore serialization issues
+      }
     }
+    remoteSyncSenders.forEach((send) => {
+      try {
+        send(message);
+      } catch {
+        // Ignore transport errors; connection UI owns recovery.
+      }
+    });
   }
 }
 
 if (syncChannel) {
-  syncChannel.onmessage = (event: MessageEvent<{ type: string; command?: SessionCommand }>) => {
-    if (event.data?.type === 'command' && event.data.command) {
-      dispatchBrowserCommand(event.data.command, false);
-    }
+  syncChannel.onmessage = (event: MessageEvent<BrowserSyncMessage>) => {
+    if (event.data?.type === 'command') receiveBrowserSyncMessage(event.data);
   };
 }
 
