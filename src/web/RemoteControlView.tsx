@@ -82,6 +82,11 @@ export function RemoteControlView() {
     }
   }, [peer]);
 
+  const handleScan = useCallback((value: string) => {
+    setAnswer(value);
+    void applyAnswer(value);
+  }, [applyAnswer]);
+
   const commitDraft = () => {
     if (draft !== state.document.rawText) command({ type: 'setDocument', name: state.document.name, text: draft });
   };
@@ -167,7 +172,7 @@ export function RemoteControlView() {
         </div>
       </details>
 
-      {scannerOpen && <AnswerScanner onScan={(value) => { setAnswer(value); void applyAnswer(value); }} onClose={() => setScannerOpen(false)} />}
+      {scannerOpen && <AnswerScanner onScan={handleScan} onClose={() => setScannerOpen(false)} />}
     </main>
   );
 }
