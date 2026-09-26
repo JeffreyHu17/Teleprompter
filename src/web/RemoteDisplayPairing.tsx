@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Camera, Copy, RotateCcw } from 'lucide-react';
+import { Camera, Copy, Link2, RotateCcw } from 'lucide-react';
 import { QrCode } from './remote/QrCode';
 import { QrScanner } from './remote/QrScanner';
 import { copyText } from './remote/clipboard';
@@ -81,32 +81,61 @@ export function RemoteDisplayPairing() {
 
   return (
     <div className="remote-display-pairing">
-      <section>
-        <span className="remote-display-kicker">REMOTE DISPLAY</span>
-        <h1>{answer ? '请主控扫描返回码' : '连接主控设备'}</h1>
+      <section className="remote-display-card">
+        <header className="remote-display-header">
+          <span className="remote-display-kicker">REMOTE DISPLAY</span>
+          <h1>{answer ? '返回主控设备' : '连接主控设备'}</h1>
+          <p>
+            {answer
+              ? '主控扫描返回二维码后即可完成 P2P 连接。'
+              : '扫描主控二维码最方便；也可以粘贴配对链接或原始配对信息。'}
+          </p>
+        </header>
 
-        {answer ? <>
-          <p>保持此页面打开，在主控设备的“远程显示”区域扫描下面的返回二维码。连接成功后本提示会自动消失。</p>
-          <QrCode value={answer} label="返回主控设备的配对二维码" size={300} />
-          <div className="remote-pair-actions">
-            <button onClick={() => void copyAnswer()}><Copy />复制返回信息</button>
-            <button onClick={resetPairing}><RotateCcw />重新配对</button>
+        {answer ? (
+          <div className="remote-display-answer">
+            <div className="remote-display-qr-wrap">
+              <QrCode value={answer} label="返回主控设备的配对二维码" size={280} />
+            </div>
+            <div className="remote-display-actions">
+              <button onClick={() => void copyAnswer()}><Copy />复制返回信息</button>
+              <button onClick={resetPairing}><RotateCcw />重新配对</button>
+            </div>
+            {copyStatus && <p className={copyStatus.includes('失败') ? 'remote-error' : 'remote-copy-status'}>{copyStatus}</p>}
+            <details className="remote-display-manual">
+              <summary><Link2 />查看原始返回信息</summary>
+              <textarea readOnly value={answer} onFocus={(event) => event.currentTarget.select()} />
+            </details>
           </div>
-          {copyStatus && <p className={copyStatus.includes('失败') ? 'remote-error' : 'remote-copy-status'}>{copyStatus}</p>}
-          <label className="remote-answer-field">
-            <span>返回信息（可长按手动复制）</span>
-            <textarea readOnly value={answer} onFocus={(event) => event.currentTarget.select()} />
-          </label>
-        </> : <>
-          <p>点击下面的按钮直接调用摄像头扫描主控二维码；也可以粘贴主控生成的配对链接或原始配对信息。</p>
-          <button className="remote-primary" onClick={() => setScannerOpen(true)}><Camera />扫描主控二维码</button>
-          <textarea value={manualOffer} onChange={(event) => setManualOffer(event.target.value)} placeholder="粘贴主控配对链接或 teleprompter-pair-v1:…" />
-          <button disabled={!manualOffer.trim()} onClick={() => void acceptOffer(manualOffer.trim())}>连接主控</button>
-        </>}
+        ) : (
+          <div className="remote-display-connect">
+            <button className="remote-primary remote-scan-button" onClick={() => setScannerOpen(true)}>
+              <Camera aria-hidden="true" />
+              <span>扫描主控二维码</span>
+            </button>
 
-        {snapshot.status === 'preparing' && <p>正在准备本地 P2P 连接…</p>}
-        {snapshot.status === 'connecting' && <p>正在建立连接…</p>}
-        {(error || snapshot.error) && <p className="remote-error">{error || snapshot.error}</p>}
+            <div className="remote-display-divider"><span>或</span></div>
+
+            <label className="remote-display-manual-input">
+              <span>手动粘贴配对信息</span>
+              <textarea
+                value={manualOffer}
+                onChange={(event) => setManualOffer(event.target.value)}
+                placeholder="粘贴主控配对链接或 teleprompter-pair-v1:…"
+              />
+            </label>
+            <button className="remote-display-connect-button" disabled={!manualOffer.trim()} onClick={() => void acceptOffer(manualOffer.trim())}>
+              连接主控
+            </button>
+          </div>
+        )}
+
+        {(snapshot.status === 'preparing' || snapshot.status === 'connecting') && (
+          <p className="remote-display-status">
+            {snapshot.status === 'preparing' ? '正在准备本地 P2P 连接…' : '正在建立连接…'}
+          </p>
+        )}
+        {(error || snapshot.error) && <p className="remote-error remote-display-status">{error || snapshot.error}</p>}
       </section>
 
       {scannerOpen && (
