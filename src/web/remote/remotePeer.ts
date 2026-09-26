@@ -1,5 +1,6 @@
 import { gzipSync, gunzipSync } from 'fflate';
 import {
+  createBrowserSyncCommand,
   getBrowserState,
   receiveBrowserSyncMessage,
   registerBrowserSyncTransport,
@@ -100,6 +101,21 @@ export function pairingPayloadFromLocation(): string | null {
   return extractPairingPayload(window.location.href);
 }
 
+
+function layoutInputsMatch(a: ReturnType<typeof getBrowserState>, b: ReturnType<typeof getBrowserState>): boolean {
+  if (a.document.revision !== b.document.revision || a.document.rawText !== b.document.rawText) return false;
+  const left = a.typography;
+  const right = b.typography;
+  return left.fontFamily === right.fontFamily
+    && left.fontSize === right.fontSize
+    && left.fontWeight === right.fontWeight
+    && left.lineHeight === right.lineHeight
+    && left.paragraphSpacing === right.paragraphSpacing
+    && left.sidePadding === right.sidePadding
+    && left.focusPosition === right.focusPosition
+    && left.alignment === right.alignment;
+}
+
 function waitForIceGathering(peer: RTCPeerConnection): Promise<void> {
   if (peer.iceGatheringState === 'complete') return Promise.resolve();
   return new Promise((resolve) => {
@@ -178,7 +194,21 @@ export class RemotePeer {
           return;
         }
         if (message.type === 'state' && this.role === 'display') {
-          receiveBrowserSyncMessage({ type: 'state', state: { ...message.state, layout: null } });
+          const localState = getBrowserState();
+          const reusableLayout = localState.layout && layoutInputsMatch(localState, message.state)
+            ? localState.layout
+            : null;
+
+          receiveBrowserSyncMessage({
+            type: 'state',
+            state: { ...message.state, layout: reusableLayout },
+          });
+
+          if (reusableLayout && channel.readyState === 'open') {
+            channel.send(JSON.stringify(
+              createBrowserSyncCommand({ type: 'reportLayout', layout: reusableLayout }),
+            ));
+          }
           return;
         }
         receiveBrowserSyncMessage(message);
