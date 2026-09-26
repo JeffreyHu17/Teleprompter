@@ -1,6 +1,5 @@
 import { gzipSync, gunzipSync } from 'fflate';
 import {
-  createBrowserSyncCommand,
   getBrowserState,
   receiveBrowserSyncMessage,
   registerBrowserSyncTransport,
@@ -154,13 +153,7 @@ export class RemotePeer {
           return;
         }
         if (message.type === 'state' && this.role === 'display') {
-          const displayLayout = getBrowserState().layout;
-          receiveBrowserSyncMessage(message);
-          if (displayLayout) {
-            const layoutMessage = createBrowserSyncCommand({ type: 'reportLayout', layout: displayLayout });
-            receiveBrowserSyncMessage(layoutMessage);
-            if (channel.readyState === 'open') channel.send(JSON.stringify(layoutMessage));
-          }
+          receiveBrowserSyncMessage({ type: 'state', state: { ...message.state, layout: null } });
           return;
         }
         receiveBrowserSyncMessage(message);
