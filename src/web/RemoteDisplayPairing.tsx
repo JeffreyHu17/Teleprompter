@@ -59,6 +59,10 @@ export function RemoteDisplayPairing() {
     history.replaceState(null, '', url);
   }, [snapshot.status]);
 
+  const handleOfferScan = useCallback((value: string) => {
+    void acceptOffer(value);
+  }, [acceptOffer]);
+
   const copyAnswer = async () => {
     const copied = await copyText(answer);
     setCopyStatus(copied ? '返回信息已复制' : '复制失败，请长按文本或改用二维码扫描');
@@ -109,7 +113,7 @@ export function RemoteDisplayPairing() {
         <QrScanner
           title="扫描主控二维码"
           hint="对准主控设备上的配对二维码"
-          onScan={(value) => void acceptOffer(value)}
+          onScan={handleOfferScan}
           onClose={() => setScannerOpen(false)}
         />
       )}
