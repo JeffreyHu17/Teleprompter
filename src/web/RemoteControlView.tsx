@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Minus, MonitorUp, Pause, Play, Plus, QrCode as QrIcon, RotateCcw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Copy, Minus, MonitorUp, Pause, Play, Plus, QrCode as QrIcon, RotateCcw } from 'lucide-react';
 import { dispatchBrowserCommand, getBrowserState, subscribeBrowserState } from '../desktop/browserSession';
 import type { SessionCommand, SessionState } from '../types/session';
 import { QrCode } from './remote/QrCode';
@@ -70,7 +70,7 @@ export function RemoteControlView() {
     }
   };
 
-  const applyAnswer = async (value = answer) => {
+  const applyAnswer = useCallback(async (value: string) => {
     const normalized = value.trim();
     if (!normalized) return;
     setError(null);
@@ -80,7 +80,7 @@ export function RemoteControlView() {
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
     }
-  };
+  }, [peer]);
 
   const commitDraft = () => {
     if (draft !== state.document.rawText) command({ type: 'setDocument', name: state.document.name, text: draft });
@@ -132,13 +132,14 @@ export function RemoteControlView() {
             <QrCode value={pairingUrl} label="显示设备配对二维码" />
             <div className="remote-pair-actions">
               <button onClick={() => setScannerOpen(true)}><QrIcon />扫描显示端返回码</button>
+              <button onClick={() => void navigator.clipboard?.writeText(pairingUrl)}><Copy />复制配对链接</button>
               <button onClick={() => void startPairing()}><RotateCcw />重新生成</button>
             </div>
             <label className="remote-answer-field">
               <span>无法扫码时粘贴返回信息</span>
               <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="teleprompter-pair-v1:…" />
             </label>
-            <button disabled={!answer.trim()} onClick={() => void applyAnswer()}>应用返回信息</button>
+            <button disabled={!answer.trim()} onClick={() => void applyAnswer(answer)}>应用返回信息</button>
           </>}
           {peerState.status === 'connected' && <p className="remote-connected-note">连接完成。播放、翻页、速度、稿件与排版修改会直接同步到显示设备。</p>}
           {(error || peerState.error) && <p className="remote-error">{error || peerState.error}</p>}
