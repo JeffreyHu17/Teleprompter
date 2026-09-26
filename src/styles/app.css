@@ -2527,3 +2527,109 @@ kbd {
     font-size: 9px;
   }
 }
+
+
+/* Shared four-mode mirror selectors. */
+.remote-mirror-setting {
+  display: grid;
+  gap: 9px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.remote-mirror-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.remote-mirror-options button {
+  min-height: 40px;
+  padding: 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-0);
+  color: var(--muted);
+}
+
+.remote-mirror-options button.active {
+  border-color: var(--green);
+  background: var(--green-dark);
+  color: var(--green);
+}
+
+.remote-setting-actions {
+  grid-template-columns: 1fr;
+}
+
+.display-mirror-menu {
+  position: absolute;
+  z-index: 21;
+  left: 50%;
+  bottom: max(84px, calc(env(safe-area-inset-bottom) + 84px));
+  width: min(360px, calc(100vw - 24px));
+  padding: 10px;
+  border: 1px solid rgba(232, 233, 227, 0.16);
+  border-radius: 14px;
+  background: rgba(14, 17, 14, 0.94);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 10px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.display-mirror-menu.is-visible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+
+.display-mirror-menu > span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font: 600 9px/1 "SFMono-Regular", Consolas, monospace;
+  text-align: center;
+}
+
+.display-mirror-menu > div {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.display-mirror-menu button {
+  min-height: 38px;
+  border: 1px solid rgba(232, 233, 227, 0.14);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--muted);
+}
+
+.display-mirror-menu button.active {
+  border-color: var(--green);
+  background: var(--green-dark);
+  color: var(--green);
+}
+
+@media (max-width: 360px) {
+  .display-control-bar {
+    gap: 3px;
+    padding: 5px;
+  }
+
+  .display-control-bar button {
+    width: 34px;
+    height: 34px;
+  }
+
+  .display-control-bar .display-control-play {
+    width: 40px;
+  }
+
+  .display-control-bar span {
+    display: none;
+  }
+}
