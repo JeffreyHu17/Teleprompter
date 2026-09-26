@@ -1,4 +1,5 @@
 import {
+  createBrowserSyncCommand,
   getBrowserState,
   receiveBrowserSyncMessage,
   registerBrowserSyncTransport,
@@ -166,7 +167,7 @@ export class RemotePeer {
           const displayLayout = getBrowserState().layout;
           receiveBrowserSyncMessage(message);
           if (displayLayout) {
-            const layoutMessage: BrowserSyncMessage = { type: 'command', command: { type: 'reportLayout', layout: displayLayout } };
+            const layoutMessage = createBrowserSyncCommand({ type: 'reportLayout', layout: displayLayout });
             receiveBrowserSyncMessage(layoutMessage);
             if (channel.readyState === 'open') channel.send(JSON.stringify(layoutMessage));
           }
