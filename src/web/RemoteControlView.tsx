@@ -82,21 +82,23 @@ export function RemoteControlView() {
     }
   };
 
-  const applyAnswer = useCallback(async (value: string) => {
+  const applyAnswer = useCallback(async (value: string): Promise<boolean> => {
     const normalized = value.trim();
-    if (!normalized) return;
+    if (!normalized) return false;
     setError(null);
     try {
       await peer.acceptAnswer(normalized);
       setScannerOpen(false);
+      return true;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
     }
   }, [peer]);
 
   const handleAnswerScan = useCallback((value: string) => {
     setAnswer(value);
-    void applyAnswer(value);
+    return applyAnswer(value);
   }, [applyAnswer]);
 
   const reportLocalPreviewLayout = useCallback((layout: LayoutReport) => {
