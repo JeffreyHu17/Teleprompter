@@ -26,11 +26,11 @@ export function RemoteDisplayPairing() {
   useEffect(() => peer.subscribe(setSnapshot), [peer]);
   useEffect(() => () => peer.close(), [peer]);
 
-  const acceptOffer = useCallback(async (value: string) => {
+  const acceptOffer = useCallback(async (value: string): Promise<boolean> => {
     const payload = extractPairingPayload(value);
     if (!payload) {
       setError('没有在二维码或文本中找到有效的主控配对信息');
-      return;
+      return false;
     }
 
     setError(null);
@@ -39,8 +39,10 @@ export function RemoteDisplayPairing() {
       const nextAnswer = await peer.acceptOffer(payload);
       setAnswer(nextAnswer);
       setScannerOpen(false);
+      return true;
     } catch (nextError) {
       setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
     }
   }, [peer]);
 
@@ -59,9 +61,7 @@ export function RemoteDisplayPairing() {
     history.replaceState(null, '', url);
   }, [snapshot.status]);
 
-  const handleOfferScan = useCallback((value: string) => {
-    void acceptOffer(value);
-  }, [acceptOffer]);
+  const handleOfferScan = useCallback((value: string) => acceptOffer(value), [acceptOffer]);
 
   const copyAnswer = async () => {
     const copied = await copyText(answer);
