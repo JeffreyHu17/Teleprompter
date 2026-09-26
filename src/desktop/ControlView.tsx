@@ -371,7 +371,7 @@ export function ControlView() {
             height={state.layout?.viewportHeight ?? previewDisplay?.height ?? 720}
             viewMirrorHorizontal={previewMirror}
             onLayout={(layout) => {
-              if (!state.layout) command({ type: 'reportLayout', layout });
+              command({ type: 'reportLayout', layout });
             }}
           />
           {state.playbackMode === 'ai' && (
