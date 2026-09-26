@@ -21,12 +21,8 @@ export function App() {
   const webRuntime = !window.teleprompter;
 
   if (view === 'display') return <DisplayView />;
-  if (mode === 'display') return webRuntime ? <WebRemoteDisplay /> : <DisplayView />;
-
-  const mobileWeb = webRuntime
-    && !mode
-    && window.matchMedia('(max-width: 760px)').matches;
-  if (webRuntime && (mode === 'control' || mobileWeb)) {
+  if (webRuntime && mode === 'display') return <WebRemoteDisplay />;
+  if (webRuntime && mode === 'control') {
     return <Suspense fallback={null}><RemoteControlView /></Suspense>;
   }
 
