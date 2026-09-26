@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Copy, Minus, MonitorUp, Pause, Play, Plus, QrCode as QrIcon, RotateCcw } from 'lucide-react';
+import jsQR from 'jsqr';
 import { dispatchBrowserCommand, getBrowserState, subscribeBrowserState } from '../desktop/browserSession';
 import type { SessionCommand, SessionState } from '../types/session';
 import { QrCode } from './remote/QrCode';
@@ -187,29 +188,32 @@ function AnswerScanner({ onScan, onClose }: { onScan: (value: string) => void; o
     let frame = 0;
 
     const start = async () => {
-      const Detector = (window as typeof window & { BarcodeDetector?: new (options?: { formats?: string[] }) => { detect(source: CanvasImageSource): Promise<Array<{ rawValue?: string }>> } }).BarcodeDetector;
-      if (!Detector) {
-        setMessage('当前浏览器不支持页面内二维码识别，请使用下方手动粘贴方式。');
-        return;
-      }
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
         if (cancelled || !videoRef.current) return;
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
         setMessage('对准显示设备上的返回二维码');
-        const detector = new Detector({ formats: ['qr_code'] });
-        const scan = async () => {
-          if (cancelled || !videoRef.current) return;
-          try {
-            const codes = await detector.detect(videoRef.current);
-            const value = codes[0]?.rawValue;
-            if (value) {
-              onScan(value);
+
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        let previousScan = 0;
+        const scan = (now: number) => {
+          if (cancelled || !videoRef.current || !context) return;
+          if (now - previousScan >= 100 && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
+            previousScan = now;
+            const sourceWidth = videoRef.current.videoWidth;
+            const sourceHeight = videoRef.current.videoHeight;
+            const scale = Math.min(1, 900 / sourceWidth);
+            canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+            canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+            context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
+            const image = context.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'dontInvert' });
+            if (code?.data) {
+              onScan(code.data);
               return;
             }
-          } catch {
-            // Keep scanning while the camera is active.
           }
           frame = requestAnimationFrame(scan);
         };
