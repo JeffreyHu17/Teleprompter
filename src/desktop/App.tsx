@@ -13,7 +13,7 @@ export function App() {
 
   const mobileWeb = webRuntime
     && !mode
-    && window.matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+    && window.matchMedia('(max-width: 760px)').matches;
   if (webRuntime && (mode === 'control' || mobileWeb)) return <RemoteControlView />;
 
   return <ControlView />;
