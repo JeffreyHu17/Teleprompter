@@ -1834,3 +1834,420 @@ kbd {
 .range-legend { display: flex; align-items: center; gap: 8px; }
 .range-legend > span { width: 20px; height: 8px; background: #284844; border-bottom: 2px solid #82c8bd; }
 .rewind-range { background: rgba(81, 157, 144, .18); text-decoration: underline; text-decoration-color: #82c8bd; text-underline-offset: .16em; }
+
+
+/* Web remote controller and zero-backend display pairing */
+.remote-control-app {
+  min-height: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background:
+    radial-gradient(circle at top right, rgba(154, 199, 104, 0.08), transparent 36%),
+    var(--surface-0);
+  padding: max(14px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+}
+
+.remote-control-header {
+  max-width: 760px;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.remote-control-header > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.remote-control-header strong,
+.remote-control-header small {
+  display: block;
+}
+
+.remote-control-header small {
+  margin-top: 3px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.remote-dot {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--muted);
+  box-shadow: 0 0 0 4px rgba(150, 158, 147, 0.12);
+}
+
+.remote-dot.connected {
+  background: var(--green);
+  box-shadow: 0 0 0 4px rgba(154, 199, 104, 0.14);
+}
+
+.remote-page {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.remote-now,
+.remote-speed,
+.remote-panel,
+.remote-transport {
+  max-width: 760px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.remote-now {
+  padding: 20px;
+  min-height: 152px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-1);
+}
+
+.remote-now > span,
+.remote-speed > span {
+  color: var(--muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.remote-now p {
+  margin: 12px 0 18px;
+  font-size: clamp(19px, 5vw, 28px);
+  line-height: 1.55;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.remote-progress {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+
+.remote-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+  transition: width 120ms linear;
+}
+
+.remote-transport {
+  display: grid;
+  grid-template-columns: 1fr 1.3fr 1fr;
+  gap: 12px;
+  padding: 18px 0 10px;
+}
+
+.remote-transport button,
+.remote-speed button,
+.remote-panel button {
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.remote-transport button {
+  min-height: 74px;
+}
+
+.remote-transport svg,
+.remote-speed svg,
+.remote-panel summary svg,
+.remote-panel button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.remote-transport .remote-play {
+  background: var(--green);
+  color: #101210;
+  border-color: transparent;
+}
+
+.remote-transport .remote-play svg {
+  width: 28px;
+  height: 28px;
+}
+
+.remote-speed {
+  margin-top: 4px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-1);
+}
+
+.remote-speed > div {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 52px 1fr 52px;
+  align-items: center;
+  gap: 10px;
+}
+
+.remote-speed strong {
+  text-align: center;
+  font-size: 22px;
+  font-variant-numeric: tabular-nums;
+}
+
+.remote-speed strong small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.remote-panel {
+  margin-top: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--surface-1);
+}
+
+.remote-panel summary {
+  min-height: 54px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+  font-weight: 650;
+  list-style: none;
+}
+
+.remote-panel summary::-webkit-details-marker {
+  display: none;
+}
+
+.remote-panel-body {
+  padding: 0 16px 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.remote-pairing-panel {
+  justify-items: center;
+  text-align: center;
+}
+
+.remote-pairing-panel p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.remote-panel button {
+  padding: 0 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.remote-panel .remote-primary {
+  width: 100%;
+  background: var(--green);
+  border-color: transparent;
+  color: #101210;
+  font-weight: 700;
+}
+
+.remote-qr {
+  max-width: min(78vw, 320px);
+  max-height: min(78vw, 320px);
+  padding: 10px;
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 10px 36px rgba(0, 0, 0, 0.3);
+}
+
+.remote-qr svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.remote-pair-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 9px;
+}
+
+.remote-answer-field {
+  width: 100%;
+  display: grid;
+  gap: 7px;
+  text-align: left;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.remote-answer-field textarea,
+.remote-script-editor,
+.remote-display-pairing textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-0);
+  color: var(--text);
+  padding: 12px;
+}
+
+.remote-answer-field textarea {
+  min-height: 82px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.remote-script-editor {
+  min-height: 260px;
+  line-height: 1.6;
+}
+
+.remote-settings label {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.remote-settings input[type="range"] {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+.remote-settings output {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.remote-connected-note {
+  color: var(--green) !important;
+}
+
+.remote-error {
+  color: var(--red) !important;
+}
+
+.remote-scanner-backdrop {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.remote-scanner {
+  width: min(520px, 100%);
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-1);
+  text-align: center;
+}
+
+.remote-scanner video {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 13px;
+  background: #050606;
+}
+
+.display-touch-surface {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.remote-display-pairing {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  background: rgba(5, 6, 6, 0.95);
+}
+
+.remote-display-pairing > section {
+  width: min(620px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: clamp(20px, 5vw, 36px);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  background: var(--surface-1);
+  text-align: center;
+}
+
+.remote-display-pairing h1 {
+  margin: 8px 0 12px;
+}
+
+.remote-display-pairing p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.remote-display-kicker {
+  color: var(--green);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+}
+
+.remote-display-pairing .remote-qr {
+  margin: 18px auto;
+}
+
+.remote-display-pairing textarea {
+  min-height: 100px;
+  margin: 12px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.remote-display-pairing button {
+  min-height: 46px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+@media (min-width: 761px) {
+  .remote-control-app {
+    padding-top: 28px;
+  }
+
+  .remote-control-header,
+  .remote-now,
+  .remote-speed,
+  .remote-panel,
+  .remote-transport {
+    width: min(760px, calc(100% - 40px));
+  }
+}
