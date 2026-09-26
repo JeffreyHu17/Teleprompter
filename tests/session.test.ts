@@ -98,6 +98,31 @@ describe('session reducer', () => {
     expect(changed.typography.sidePadding).toBe(300);
   });
 
+  it('ignores layout reports from an older document revision', () => {
+    let state = initialSessionState();
+    const staleRevision = state.document.revision;
+    state = sessionReducer(state, { type: 'setDocument', name: 'new-script', text: '新的稿件内容。' });
+
+    const unchanged = sessionReducer(state, {
+      type: 'reportLayout',
+      layout: {
+        revision: 99,
+        documentRevision: staleRevision,
+        pageAnchors: [anchorAt(state.document, 0)],
+        pageCount: 1,
+        viewportWidth: 1920,
+        viewportHeight: 1080,
+        documentHeight: 1400,
+        textWidthPx: 1200,
+        pageScrollOffsets: [0],
+        paragraphScrollOffsets: [0],
+      },
+    });
+
+    expect(unchanged).toBe(state);
+    expect(unchanged.layout).toBeNull();
+  });
+
   it('preserves the content at the focus line when the viewport is reflowed', () => {
     let state = initialSessionState();
     state = sessionReducer(state, { type: 'setDocument', name: 'focus-test', text: 'abcdefghij\n\nklmnopqrst' });
