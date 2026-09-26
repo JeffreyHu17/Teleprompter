@@ -2633,3 +2633,66 @@ kbd {
     display: none;
   }
 }
+
+
+/* Remote controller shell: keep preview + transport pinned, settings scroll independently. */
+.remote-control-app {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.remote-control-fixed {
+  min-height: 0;
+}
+
+.remote-control-fixed .remote-program-frame {
+  height: clamp(140px, 34vh, 320px);
+}
+
+.remote-control-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 2px max(24px, env(safe-area-inset-bottom));
+  scrollbar-gutter: stable;
+}
+
+.remote-local-preview-note {
+  width: min(760px, 100%);
+  margin: 4px auto 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--green) 28%, var(--line));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--green-dark) 50%, transparent);
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+@media (min-width: 761px) {
+  .remote-control-scroll > .remote-local-preview-note,
+  .remote-control-scroll > .remote-speed,
+  .remote-control-scroll > .remote-panel {
+    width: min(760px, calc(100% - 40px));
+  }
+}
+
+@media (max-height: 560px) {
+  .remote-control-header {
+    margin-bottom: 8px;
+  }
+
+  .remote-control-fixed .remote-program-frame {
+    height: 128px;
+    min-height: 128px;
+  }
+
+  .remote-transport {
+    padding: 10px 0 8px;
+  }
+
+  .remote-transport button {
+    min-height: 56px;
+  }
+}
