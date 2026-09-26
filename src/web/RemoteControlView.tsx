@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Copy, Minus, MonitorUp, Pause, Play, Plus, QrCode as QrIcon, RotateCcw } from 'lucide-react';
-import jsQR from 'jsqr';
 import { dispatchBrowserCommand, getBrowserState, subscribeBrowserState } from '../desktop/browserSession';
+import { DEFAULT_TYPOGRAPHY } from '../core/session';
 import type { SessionCommand, SessionState } from '../types/session';
+import { RemoteProgramPreview } from './RemoteProgramPreview';
 import { QrCode } from './remote/QrCode';
+import { QrScanner } from './remote/QrScanner';
+import { copyText } from './remote/clipboard';
 import { RemotePeer, buildDisplayPairingUrl, type RemotePeerSnapshot } from './remote/remotePeer';
 
 function useBrowserSession() {
@@ -22,17 +25,26 @@ function statusLabel(snapshot: RemotePeerSnapshot): string {
   return '尚未连接显示设备';
 }
 
+function returnToSingleDeviceMode() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('mode');
+  url.hash = '';
+  window.location.assign(url.toString());
+}
+
 export function RemoteControlView() {
   const { state, command } = useBrowserSession();
   const peerRef = useRef<RemotePeer | null>(null);
   if (!peerRef.current) peerRef.current = new RemotePeer('control');
   const peer = peerRef.current;
+
   const [peerState, setPeerState] = useState<RemotePeerSnapshot>(peer.current());
   const [pairingUrl, setPairingUrl] = useState('');
   const [answer, setAnswer] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [draft, setDraft] = useState(state.document.rawText);
   const [error, setError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   useEffect(() => peer.subscribe(setPeerState), [peer]);
   useEffect(() => () => peer.close(), [peer]);
@@ -48,20 +60,9 @@ export function RemoteControlView() {
     return page;
   }, [state.layout, state.scrollOffsetPx]);
 
-  const paragraphIndex = useMemo(() => {
-    const offsets = state.layout?.paragraphScrollOffsets ?? [];
-    if (!offsets.length) return state.anchor.paragraphIndex;
-    let index = 0;
-    offsets.forEach((offset, current) => {
-      if (offset <= state.scrollOffsetPx + state.typography.fontSize) index = current;
-    });
-    return Math.min(index, state.document.paragraphs.length - 1);
-  }, [state.anchor.paragraphIndex, state.document.paragraphs.length, state.layout, state.scrollOffsetPx, state.typography.fontSize]);
-
-  const paragraph = state.document.paragraphs[paragraphIndex];
-
   const startPairing = async () => {
     setError(null);
+    setCopyStatus(null);
     setAnswer('');
     try {
       const offer = await peer.createOffer();
@@ -83,13 +84,24 @@ export function RemoteControlView() {
     }
   }, [peer]);
 
-  const handleScan = useCallback((value: string) => {
+  const handleAnswerScan = useCallback((value: string) => {
     setAnswer(value);
     void applyAnswer(value);
   }, [applyAnswer]);
 
+  const copyPairingUrl = async () => {
+    const copied = await copyText(pairingUrl);
+    setCopyStatus(copied ? '配对链接已复制' : '复制失败，请长按二维码或使用手动配对');
+  };
+
   const commitDraft = () => {
-    if (draft !== state.document.rawText) command({ type: 'setDocument', name: state.document.name, text: draft });
+    if (draft !== state.document.rawText) {
+      command({ type: 'setDocument', name: state.document.name, text: draft });
+    }
+  };
+
+  const resetTypography = () => {
+    command({ type: 'setTypography', patch: { ...DEFAULT_TYPOGRAPHY } });
   };
 
   return (
@@ -99,16 +111,13 @@ export function RemoteControlView() {
           <span className={peerState.status === 'connected' ? 'remote-dot connected' : 'remote-dot'} />
           <div><strong>Teleprompter Remote</strong><small>{statusLabel(peerState)}</small></div>
         </div>
-        <span className="remote-page">{pageNumber} / {Math.max(1, state.layout?.pageCount ?? 1)}</span>
+        <div className="remote-header-actions">
+          <span className="remote-page">{pageNumber} / {Math.max(1, state.layout?.pageCount ?? 1)}</span>
+          <button onClick={returnToSingleDeviceMode}>一机模式</button>
+        </div>
       </header>
 
-      <section className="remote-now">
-        <span>当前内容</span>
-        <p>{paragraph?.text || '暂无稿件'}</p>
-        <div className="remote-progress">
-          <span style={{ width: `${Math.min(100, Math.max(0, state.layout?.documentHeight ? state.scrollOffsetPx / state.layout.documentHeight * 100 : 0))}%` }} />
-        </div>
-      </section>
+      <RemoteProgramPreview state={state} />
 
       <section className="remote-transport">
         <button aria-label="上一页" onClick={() => command({ type: 'navigatePage', direction: -1 })}><ChevronLeft /></button>
@@ -133,21 +142,26 @@ export function RemoteControlView() {
           {!pairingUrl && peerState.status !== 'connected' && (
             <button className="remote-primary" onClick={() => void startPairing()}><QrIcon />创建配对二维码</button>
           )}
+
           {pairingUrl && peerState.status !== 'connected' && <>
-            <p>在显示设备上用系统相机扫描此二维码。显示设备打开页面后会生成返回二维码，再用本页扫描完成 P2P 配对。</p>
+            <p>显示设备可直接进入“远程模式 → 显示端”并调用摄像头扫描，也可以用系统相机扫描下面的二维码。</p>
             <QrCode value={pairingUrl} label="显示设备配对二维码" />
             <div className="remote-pair-actions">
               <button onClick={() => setScannerOpen(true)}><QrIcon />扫描显示端返回码</button>
-              <button onClick={() => void navigator.clipboard?.writeText(pairingUrl)}><Copy />复制配对链接</button>
+              <button onClick={() => void copyPairingUrl()}><Copy />复制配对链接</button>
               <button onClick={() => void startPairing()}><RotateCcw />重新生成</button>
             </div>
+            {copyStatus && <p className={copyStatus.includes('失败') ? 'remote-error' : 'remote-copy-status'}>{copyStatus}</p>}
             <label className="remote-answer-field">
-              <span>无法扫码时粘贴返回信息</span>
+              <span>无法扫码时粘贴显示端返回信息</span>
               <textarea value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="teleprompter-pair-v1:…" />
             </label>
             <button disabled={!answer.trim()} onClick={() => void applyAnswer(answer)}>应用返回信息</button>
           </>}
-          {peerState.status === 'connected' && <p className="remote-connected-note">连接完成。播放、翻页、速度、稿件与排版修改会直接同步到显示设备。</p>}
+
+          {peerState.status === 'connected' && (
+            <p className="remote-connected-note">连接完成。播放、翻页、速度、稿件与排版修改会直接同步到显示设备。</p>
+          )}
           {(error || peerState.error) && <p className="remote-error">{error || peerState.error}</p>}
         </div>
       </details>
@@ -164,80 +178,28 @@ export function RemoteControlView() {
         <summary>显示排版</summary>
         <div className="remote-panel-body remote-settings">
           <label>字号 <output>{state.typography.fontSize}px</output><input type="range" min="16" max="240" value={state.typography.fontSize} onChange={(event) => command({ type: 'setTypography', patch: { fontSize: Number(event.target.value) } })} /></label>
+          <label>字重 <output>{state.typography.fontWeight}</output><input type="range" min="100" max="900" step="100" value={state.typography.fontWeight} onChange={(event) => command({ type: 'setTypography', patch: { fontWeight: Number(event.target.value) } })} /></label>
           <label>行距 <output>{state.typography.lineHeight.toFixed(2)}</output><input type="range" min="0.7" max="3" step="0.05" value={state.typography.lineHeight} onChange={(event) => command({ type: 'setTypography', patch: { lineHeight: Number(event.target.value) } })} /></label>
+          <label>段落间距 <output>{state.typography.paragraphSpacing.toFixed(2)}</output><input type="range" min="0" max="3" step="0.05" value={state.typography.paragraphSpacing} onChange={(event) => command({ type: 'setTypography', patch: { paragraphSpacing: Number(event.target.value) } })} /></label>
           <label>左右间距 <output>{state.typography.sidePadding}px</output><input type="range" min="0" max="400" step="4" value={Math.min(400, state.typography.sidePadding)} onChange={(event) => command({ type: 'setTypography', patch: { sidePadding: Number(event.target.value) } })} /></label>
           <label>焦点位置 <output>{state.typography.focusPosition}%</output><input type="range" min="10" max="80" value={state.typography.focusPosition} onChange={(event) => command({ type: 'setTypography', patch: { focusPosition: Number(event.target.value) } })} /></label>
-          <button onClick={() => command({ type: 'setMirror', mode: state.mirrorMode === 'horizontal' ? 'none' : 'horizontal' })}>
-            {state.mirrorMode === 'horizontal' ? '关闭水平镜像' : '开启水平镜像'}
-          </button>
+          <div className="remote-setting-actions">
+            <button onClick={() => command({ type: 'setMirror', mode: state.mirrorMode === 'horizontal' ? 'none' : 'horizontal' })}>
+              {state.mirrorMode === 'horizontal' ? '关闭水平镜像' : '开启水平镜像'}
+            </button>
+            <button onClick={resetTypography}><RotateCcw />恢复默认排版</button>
+          </div>
         </div>
       </details>
 
-      {scannerOpen && <AnswerScanner onScan={handleScan} onClose={() => setScannerOpen(false)} />}
+      {scannerOpen && (
+        <QrScanner
+          title="扫描显示端返回码"
+          hint="对准显示设备上的返回二维码"
+          onScan={handleAnswerScan}
+          onClose={() => setScannerOpen(false)}
+        />
+      )}
     </main>
-  );
-}
-
-function AnswerScanner({ onScan, onClose }: { onScan: (value: string) => void; onClose: () => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [message, setMessage] = useState('正在打开相机…');
-
-  useEffect(() => {
-    let cancelled = false;
-    let stream: MediaStream | null = null;
-    let frame = 0;
-
-    const start = async () => {
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
-        if (cancelled || !videoRef.current) return;
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        setMessage('对准显示设备上的返回二维码');
-
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        let previousScan = 0;
-        const scan = (now: number) => {
-          if (cancelled || !videoRef.current || !context) return;
-          if (now - previousScan >= 100 && videoRef.current.videoWidth > 0 && videoRef.current.videoHeight > 0) {
-            previousScan = now;
-            const sourceWidth = videoRef.current.videoWidth;
-            const sourceHeight = videoRef.current.videoHeight;
-            const scale = Math.min(1, 900 / sourceWidth);
-            canvas.width = Math.max(1, Math.round(sourceWidth * scale));
-            canvas.height = Math.max(1, Math.round(sourceHeight * scale));
-            context.drawImage(videoRef.current, 0, 0, canvas.width, canvas.height);
-            const image = context.getImageData(0, 0, canvas.width, canvas.height);
-            const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'dontInvert' });
-            if (code?.data) {
-              onScan(code.data);
-              return;
-            }
-          }
-          frame = requestAnimationFrame(scan);
-        };
-        frame = requestAnimationFrame(scan);
-      } catch (scanError) {
-        setMessage(scanError instanceof Error ? scanError.message : '无法打开相机');
-      }
-    };
-
-    void start();
-    return () => {
-      cancelled = true;
-      cancelAnimationFrame(frame);
-      stream?.getTracks().forEach((track) => track.stop());
-    };
-  }, [onScan]);
-
-  return (
-    <div className="remote-scanner-backdrop">
-      <section className="remote-scanner" role="dialog" aria-modal="true">
-        <video ref={videoRef} playsInline muted />
-        <p>{message}</p>
-        <button onClick={onClose}>关闭扫描</button>
-      </section>
-    </div>
   );
 }
