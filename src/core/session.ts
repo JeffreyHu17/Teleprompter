@@ -419,6 +419,8 @@ export function sessionReducer(state: SessionState, command: SessionCommand): Se
       };
       break;
     case 'reportLayout': {
+      if (command.layout.documentRevision !== state.document.revision) return state;
+
       const equivalent = Boolean(
         state.layout
         && state.layout.documentRevision === command.layout.documentRevision
@@ -437,11 +439,12 @@ export function sessionReducer(state: SessionState, command: SessionCommand): Se
 
       patch = { layout: command.layout };
       if (command.preserveFocusAnchor && state.playbackMode === 'fixed') {
+        const preservedAnchor = anchorAt(state.document, command.preserveFocusAnchor.globalOffset);
         const lineCenterOffset = state.typography.fontSize * state.typography.lineHeight / 2;
-        const anchorStageOffset = scrollOffsetForAnchor(state, command.preserveFocusAnchor, command.layout);
+        const anchorStageOffset = scrollOffsetForAnchor(state, preservedAnchor, command.layout);
         const maxScroll = Math.max(0, command.layout.documentHeight - state.typography.fontSize * state.typography.lineHeight);
         patch.scrollOffsetPx = Math.max(0, Math.min(maxScroll, anchorStageOffset - lineCenterOffset));
-        patch.anchor = command.preserveFocusAnchor;
+        patch.anchor = preservedAnchor;
       }
       break;
     }
