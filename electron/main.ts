@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences, type Input, type OpenDialogOptions } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, screen, session, shell, systemPreferences, type OpenDialogOptions } from 'electron';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, createReadStream, createWriteStream, existsSync, readFileSync } from 'node:fs';
@@ -795,7 +795,7 @@ function dispatch(command: SessionCommand): void {
   state = next;
   broadcastState();
 
-  if (!['tick', 'reportLayout', 'setTracker', 'setDisplayOpen', 'setPlaying', 'togglePlay', 'seek'].includes(command.type)) {
+  if (!['tick', 'reportLayout', 'setTracker', 'setDisplayOpen', 'setPlaying', 'togglePlay', 'seek', 'scrollStep', 'setFocusAdjusting'].includes(command.type)) {
     schedulePersistState();
   }
 
@@ -1122,7 +1122,10 @@ async function ensureMicrophoneAccess(): Promise<boolean> {
   return microphoneAccessPromise;
 }
 
-function handleSessionCommand(command: SessionCommand): void {
+function handleSessionCommand(command: SessionCommand & { currentScrollOffsetPx?: number }): void {
+  if (typeof command.currentScrollOffsetPx === 'number') {
+    state.scrollOffsetPx = command.currentScrollOffsetPx;
+  }
   const manualPositionCommand = command.type === 'navigatePage'
     || command.type === 'navigateParagraph'
     || command.type === 'rewindStep'
@@ -1256,7 +1259,6 @@ function createControllerWindow(): BrowserWindow {
     },
   });
   loadRenderer(window, 'control');
-  installKeyboardHandler(window);
   window.on('closed', () => {
     controllerWindow = null;
     if (displayWindow) displayWindow.close();
@@ -1282,7 +1284,6 @@ function createDisplayWindow(): BrowserWindow {
   window.on('move', () => {
     if (!programmaticDisplayMove && !window.isFullScreen()) userPositionedDisplay = true;
   });
-  installKeyboardHandler(window);
   window.webContents.once('did-finish-load', () => {
     window.showInactive();
     restoreControllerFocus();
@@ -1305,39 +1306,12 @@ function toggleDisplayWindow(open?: boolean): void {
   if (!state.displayOpen) dispatch({ type: 'setDisplayOpen', open: true });
 }
 
-function handleKey(input: Input): boolean {
-  if (input.type !== 'keyDown' || input.isAutoRepeat) return false;
-  const key = input.key.toLowerCase();
-  if (key === ' ') dispatch({ type: 'togglePlay' });
-  else if (key === 'enter') dispatch({ type: 'togglePlay' });
-  else if (key === 'arrowleft') dispatch({ type: input.shift ? 'navigateParagraph' : 'navigatePage', direction: -1 });
-  else if (key === 'arrowright') dispatch({ type: input.shift ? 'navigateParagraph' : 'navigatePage', direction: 1 });
-  else if (key === 'arrowup') dispatch({ type: 'adjustSpeed', delta: 10 });
-  else if (key === 'arrowdown') dispatch({ type: 'adjustSpeed', delta: -10 });
-  else if (key === 'pageup') dispatch({ type: 'rewindStep' });
-  else return false;
-  return true;
-}
-
-function installKeyboardHandler(window: BrowserWindow): void {
-  window.webContents.on('before-input-event', (event, input) => {
-    if (window === controllerWindow) return;
-    if (handleKey(input)) event.preventDefault();
-  });
-}
-
 async function importScript(): Promise<ImportResult | null> {
   return importScriptViaDialog(controllerWindow);
 }
 
 function startTicker(): void {
-  lastTick = Date.now();
-  ticker = setInterval(() => {
-    const now = Date.now();
-    const elapsedMs = Math.min(250, now - lastTick);
-    lastTick = now;
-    if (state.isPlaying && state.playbackMode === 'fixed') dispatch({ type: 'tick', elapsedMs });
-  }, 50);
+  // Smooth scrolling is driven by renderer requestAnimationFrame at native display refresh rates (60/120fps)
 }
 
 function registerIpc(): void {

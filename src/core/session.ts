@@ -121,6 +121,7 @@ export function initialSessionState(platform: 'macos' | 'windows' | 'android' | 
     displayOpen: false,
     layout: null,
     trackerStatus: 'ready',
+    focusAdjusting: false,
     speech: {
       engine: platform === 'browser' ? 'funasr' : 'system',
       locale: 'zh-CN',
@@ -242,10 +243,16 @@ export function sessionReducer(state: SessionState, command: SessionCommand): Se
       break;
     }
     case 'togglePlay':
-      patch = { isPlaying: !state.isPlaying };
+      patch = {
+        isPlaying: !state.isPlaying,
+        ...(command.scrollOffsetPx !== undefined ? { scrollOffsetPx: command.scrollOffsetPx } : {}),
+      };
       break;
     case 'setPlaying':
-      patch = { isPlaying: command.playing };
+      patch = {
+        isPlaying: command.playing,
+        ...(command.scrollOffsetPx !== undefined ? { scrollOffsetPx: command.scrollOffsetPx } : {}),
+      };
       break;
     case 'setMode':
       patch = {
@@ -395,6 +402,9 @@ export function sessionReducer(state: SessionState, command: SessionCommand): Se
         ))
       ) return state;
       patch = { layout: command.layout };
+      break;
+    case 'setFocusAdjusting':
+      patch = { focusAdjusting: command.adjusting };
       break;
     case 'tick': {
       if (!state.isPlaying || state.playbackMode !== 'fixed') return state;

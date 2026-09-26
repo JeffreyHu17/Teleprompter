@@ -64,6 +64,9 @@ export function DisplayView() {
       const isPageUp = event.code === 'PageUp' || event.key === 'PageUp' || event.keyCode === 33;
       const isHome = event.code === 'Home' || event.key === 'Home' || event.keyCode === 36;
 
+      const isBracketLeft = event.code === 'BracketLeft' || event.key === '[' || event.key === '【' || event.code === 'Minus' || event.key === '-';
+      const isBracketRight = event.code === 'BracketRight' || event.key === ']' || event.key === '】' || event.code === 'Equal' || event.key === '=' || event.key === '+';
+
       let next: SessionCommand | null = null;
       if (isSpace || isEnter) {
         next = { type: 'togglePlay' };
@@ -75,9 +78,9 @@ export function DisplayView() {
         next = state.isPlaying ? { type: 'adjustSpeed', delta: -10 } : { type: 'scrollStep', deltaPx: 60 };
       } else if (isUp) {
         next = state.isPlaying ? { type: 'adjustSpeed', delta: 10 } : { type: 'scrollStep', deltaPx: -60 };
-      } else if (event.key === '[' || event.key === '-') {
+      } else if (isBracketLeft) {
         next = { type: 'adjustSpeed', delta: -10 };
-      } else if (event.key === ']' || event.key === '=' || event.key === '+') {
+      } else if (isBracketRight) {
         next = { type: 'adjustSpeed', delta: 10 };
       } else if (isHome) {
         next = { type: 'seek', anchor: anchorAt(state.document, 0) };

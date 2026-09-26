@@ -32,7 +32,7 @@ import {
   X,
 } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
-import type { FunAsrBackend, FunAsrModelId, LayoutReport, MirrorMode, SessionCommand } from '../types/session';
+import type { FunAsrBackend, FunAsrModelId, LayoutReport, MirrorMode, SessionCommand, TypographySettings } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
 import { anchorAt } from '../core/session';
 import { platformCapabilities } from './capabilities';
@@ -67,7 +67,46 @@ export function ControlView() {
   const [paragraphsCollapsed, setParagraphsCollapsed] = useState(false);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
   const [modelActionError, setModelActionError] = useState<string | null>(null);
+  const [editorFontSize, setEditorFontSize] = useState<number>(() => {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const saved = Number(window.localStorage.getItem('teleprompter_editor_font_size'));
+      if (Number.isFinite(saved) && saved >= 12 && saved <= 36) return saved;
+    }
+    return 18;
+  });
+
+  const updateEditorFontSize = (delta: number) => {
+    setEditorFontSize((prev) => {
+      const next = Math.max(12, Math.min(36, prev + delta));
+      try {
+        window.localStorage.setItem('teleprompter_editor_font_size', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
   const fileRef = useRef<HTMLInputElement>(null);
+  const focusAdjustTimerRef = useRef<number | null>(null);
+
+  const handleFocusParamChange = (patch: Partial<TypographySettings>) => {
+    command({ type: 'setTypography', patch });
+    command({ type: 'setFocusAdjusting', adjusting: true });
+    if (focusAdjustTimerRef.current !== null) {
+      window.clearTimeout(focusAdjustTimerRef.current);
+    }
+    focusAdjustTimerRef.current = window.setTimeout(() => {
+      command({ type: 'setFocusAdjusting', adjusting: false });
+      focusAdjustTimerRef.current = null;
+    }, 1200);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (focusAdjustTimerRef.current !== null) {
+        window.clearTimeout(focusAdjustTimerRef.current);
+      }
+    };
+  }, []);
   const paragraph = state.document.paragraphs[state.anchor.paragraphIndex];
   const previewDisplay = displays.find((display) => display.id === state.selectedDisplayId)
     ?? displays.find((display) => !display.primary)
@@ -98,6 +137,9 @@ export function ControlView() {
       const isPageUp = event.code === 'PageUp' || event.key === 'PageUp' || event.keyCode === 33;
       const isHome = event.code === 'Home' || event.key === 'Home' || event.keyCode === 36;
 
+      const isBracketLeft = event.code === 'BracketLeft' || event.key === '[' || event.key === '【' || event.code === 'Minus' || event.key === '-';
+      const isBracketRight = event.code === 'BracketRight' || event.key === ']' || event.key === '】' || event.code === 'Equal' || event.key === '=' || event.key === '+';
+
       let next: SessionCommand | null = null;
       if (isSpace || isEnter) {
         next = { type: 'togglePlay' };
@@ -109,9 +151,9 @@ export function ControlView() {
         next = state.isPlaying ? { type: 'adjustSpeed', delta: -10 } : { type: 'scrollStep', deltaPx: 60 };
       } else if (isUp) {
         next = state.isPlaying ? { type: 'adjustSpeed', delta: 10 } : { type: 'scrollStep', deltaPx: -60 };
-      } else if (event.key === '[' || event.key === '-') {
+      } else if (isBracketLeft) {
         next = { type: 'adjustSpeed', delta: -10 };
-      } else if (event.key === ']' || event.key === '=' || event.key === '+') {
+      } else if (isBracketRight) {
         next = { type: 'adjustSpeed', delta: 10 };
       } else if (isHome) {
         next = { type: 'seek', anchor: anchorAt(state.document, 0) };
@@ -259,18 +301,40 @@ export function ControlView() {
             value={draft}
             spellCheck={false}
             style={{
-              fontFamily: state.typography.fontFamily,
-              fontSize: `${Math.max(12, Math.min(48, state.typography.fontSize * 0.3))}px`,
-              fontWeight: state.typography.fontWeight,
-              lineHeight: state.typography.lineHeight,
+              fontSize: `${editorFontSize}px`,
             }}
             onChange={(event) => setDraft(event.target.value)}
             onBlur={commitDraft}
             aria-label="提词稿编辑器"
           />
           <footer className="editor-footer">
-            <span>当前段落 {state.anchor.paragraphIndex + 1}</span>
-            <span className="current-line">{paragraph?.text.slice(Math.max(0, state.anchor.charOffset - 12), state.anchor.charOffset + 28)}</span>
+            <div className="editor-footer-left">
+              <span>当前段落 {state.anchor.paragraphIndex + 1}</span>
+              <span className="current-line">{paragraph?.text.slice(Math.max(0, state.anchor.charOffset - 12), state.anchor.charOffset + 28)}</span>
+            </div>
+            <div className="editor-footer-actions">
+              <span className="editor-font-size-label">{editorFontSize}px</span>
+              <button
+                type="button"
+                className="editor-font-btn"
+                title="缩小稿件编辑字号"
+                aria-label="缩小稿件编辑字号"
+                onClick={() => updateEditorFontSize(-2)}
+                disabled={editorFontSize <= 12}
+              >
+                A-
+              </button>
+              <button
+                type="button"
+                className="editor-font-btn"
+                title="放大稿件编辑字号"
+                aria-label="放大稿件编辑字号"
+                onClick={() => updateEditorFontSize(2)}
+                disabled={editorFontSize >= 36}
+              >
+                A+
+              </button>
+            </div>
           </footer>
         </section>
 
@@ -509,8 +573,8 @@ export function ControlView() {
             <RangeField label="行距" value={state.typography.lineHeight} min={0.5} max={5} step={0.05} onChange={(lineHeight) => command({ type: 'setTypography', patch: { lineHeight } })} />
             <RangeField label="段间距" value={state.typography.paragraphSpacing} min={0} max={12} step={0.1} suffix="em" onChange={(paragraphSpacing) => command({ type: 'setTypography', patch: { paragraphSpacing } })} />
             <RangeField label="左右间距" value={state.typography.sidePadding} min={0} max={2000} step={5} suffix="px" onChange={(sidePadding) => command({ type: 'setTypography', patch: { sidePadding } })} />
-            <RangeField label="焦点位置" value={state.typography.focusPosition} min={0} max={100} suffix="%" onChange={(focusPosition) => command({ type: 'setTypography', patch: { focusPosition } })} />
-            <RangeField label="高亮强度" value={state.typography.focusOpacity} min={0} max={1} step={0.01} onChange={(focusOpacity) => command({ type: 'setTypography', patch: { focusOpacity } })} />
+            <RangeField label="焦点位置" value={state.typography.focusPosition} min={0} max={100} suffix="%" onChange={(focusPosition) => handleFocusParamChange({ focusPosition })} />
+            <RangeField label="高亮强度" value={state.typography.focusOpacity} min={0} max={1} step={0.01} onChange={(focusOpacity) => handleFocusParamChange({ focusOpacity })} />
             <div className="alignment-row">
               <span>对齐</span>
               <div className="segmented-control compact-control">

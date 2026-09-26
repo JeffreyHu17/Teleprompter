@@ -167,9 +167,12 @@ export function PrompterSurface({
   }, [document.paragraphs, document.rawText, document.revision, onLayout, typography, typographySignature, viewportHeight, viewportWidth]);
 
   const focusY = viewportHeight * typography.focusPosition / 100;
+  const lineHeightPx = typography.fontSize * typography.lineHeight;
+  const lineCenterOffset = lineHeightPx / 2;
   const translateY = state.playbackMode === 'ai'
     ? focusY - anchorY
-    : focusY - state.scrollOffsetPx;
+    : focusY - lineCenterOffset - state.scrollOffsetPx;
+  const showFocusGuide = Boolean(state.focusAdjusting);
   return (
     <div
       className={`prompter-output ${className}`.trim()}
@@ -187,17 +190,17 @@ export function PrompterSurface({
         </div>
       )}
       <div className="prompter-mirror-layer" style={{ transform: viewTransform(state.mirrorMode, viewMirrorHorizontal) }}>
-        {state.playbackMode === 'ai' && (
-          <div
-            className="focus-band"
-            style={{
-              top: `${typography.focusPosition}%`,
-              height: `${typography.fontSize * typography.lineHeight}px`,
-              backgroundColor: typography.focusColor,
-              opacity: typography.focusOpacity,
-            }}
-          />
-        )}
+        <div
+          className={`focus-band ${showFocusGuide ? 'is-visible' : ''}`.trim()}
+          style={{
+            top: `${typography.focusPosition}%`,
+            height: `${lineHeightPx}px`,
+            backgroundColor: typography.focusColor,
+            borderTop: `1px solid ${typography.focusColor}`,
+            borderBottom: `1px solid ${typography.focusColor}`,
+            '--focus-opacity': typography.focusOpacity,
+          } as React.CSSProperties}
+        />
         <div
           ref={stageRef}
           className={`prompter-stage ${state.isPlaying && state.playbackMode === 'fixed' ? 'is-playing' : ''}`.trim()}

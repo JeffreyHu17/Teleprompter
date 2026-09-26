@@ -145,14 +145,15 @@ export interface SessionState {
   trackerStatus: 'idle' | 'ready' | 'listening' | 'paused' | 'lost';
   speech: SpeechTrackerState;
   funasr: FunAsrState;
+  focusAdjusting?: boolean;
 }
 
 export type SessionCommand =
   | { type: 'recordReread'; event: RereadEvent }
   | { type: 'setTracking'; patch: Partial<TrackingSettings> }
   | { type: 'setDocument'; name: string; text: string }
-  | { type: 'togglePlay' }
-  | { type: 'setPlaying'; playing: boolean }
+  | { type: 'togglePlay'; scrollOffsetPx?: number }
+  | { type: 'setPlaying'; playing: boolean; scrollOffsetPx?: number }
   | { type: 'setMode'; mode: PlaybackMode }
   | { type: 'setMicrophoneEnabled'; enabled: boolean }
   | { type: 'setMicrophoneProcessing'; patch: Partial<MicrophoneProcessingSettings> }
@@ -174,6 +175,7 @@ export type SessionCommand =
   | { type: 'setDisplayOpen'; open: boolean }
   | { type: 'setTracker'; status: SessionState['trackerStatus']; patch?: Partial<SpeechTrackerState> }
   | { type: 'reportLayout'; layout: LayoutReport }
+  | { type: 'setFocusAdjusting'; adjusting: boolean }
   | { type: 'tick'; elapsedMs: number };
 
 export interface ImportResult {

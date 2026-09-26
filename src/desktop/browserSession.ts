@@ -49,7 +49,7 @@ export function dispatchBrowserCommand(command: SessionCommand, broadcast = true
   state = next;
   listeners.forEach((listener) => listener(state));
 
-  if (!['tick', 'reportLayout', 'setTracker', 'setDisplayOpen', 'setPlaying', 'togglePlay', 'seek', 'scrollStep'].includes(command.type)) {
+  if (!['tick', 'reportLayout', 'setTracker', 'setDisplayOpen', 'setPlaying', 'togglePlay', 'seek', 'scrollStep', 'setFocusAdjusting'].includes(command.type)) {
     schedulePersist();
   }
 

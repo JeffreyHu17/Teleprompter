@@ -29,7 +29,24 @@ export function useTeleprompter() {
     if (!window.teleprompter) return subscribeBrowserState(setState);
     void window.teleprompter.getState().then(setState);
     void window.teleprompter.listDisplays().then(setDisplays);
-    const offState = window.teleprompter.subscribeState(setState);
+    const offState = window.teleprompter.subscribeState((next) => {
+      setState((current) => {
+        if (
+          current.isPlaying &&
+          next.isPlaying &&
+          current.playbackMode === 'fixed' &&
+          next.playbackMode === 'fixed' &&
+          current.document.revision === next.document.revision &&
+          current.anchor.globalOffset === next.anchor.globalOffset
+        ) {
+          return {
+            ...next,
+            scrollOffsetPx: current.scrollOffsetPx,
+          };
+        }
+        return next;
+      });
+    });
     const offDisplays = window.teleprompter.subscribeDisplays(setDisplays);
     return () => {
       offState();
@@ -86,14 +103,36 @@ export function useTeleprompter() {
     };
   }, [refreshAudioInputs]);
 
+  useEffect(() => {
+    if (!window.teleprompter) return;
+    if (!state.isPlaying || state.playbackMode !== 'fixed') return;
+
+    let animId: number;
+    let lastTime = performance.now();
+    const onFrame = (now: number) => {
+      const delta = now - lastTime;
+      lastTime = now;
+      const elapsedMs = delta > 100 ? 16 : Math.max(0, delta);
+      setState((current) => sessionReducer(current, { type: 'tick', elapsedMs }));
+      animId = requestAnimationFrame(onFrame);
+    };
+    animId = requestAnimationFrame(onFrame);
+    return () => cancelAnimationFrame(animId);
+  }, [state.isPlaying, state.playbackMode]);
+
   const command = useCallback((next: SessionCommand) => {
     if (window.teleprompter) {
-      setState((current) => sessionReducer(current, next));
-      window.teleprompter.command(next);
+      const enriched = {
+        ...next,
+        ...(next.type === 'togglePlay' || next.type === 'setPlaying' ? { scrollOffsetPx: next.scrollOffsetPx ?? state.scrollOffsetPx } : {}),
+        currentScrollOffsetPx: state.scrollOffsetPx,
+      };
+      setState((current) => sessionReducer(current, enriched as SessionCommand));
+      window.teleprompter.command(enriched as SessionCommand);
       return;
     }
     dispatchBrowserCommand(next);
-  }, []);
+  }, [state.scrollOffsetPx]);
 
   const toggleDisplay = useCallback((open?: boolean) => {
     if (window.teleprompter) window.teleprompter.toggleDisplay(open);
