@@ -55,11 +55,22 @@ export async function decodePairingEnvelope(payload: string): Promise<PairingEnv
   } catch {
     throw new Error('配对信息损坏或不完整');
   }
-  const parsed = JSON.parse(new TextDecoder().decode(bytes)) as PairingEnvelope;
-  if (parsed.version !== 1 || (parsed.kind !== 'offer' && parsed.kind !== 'answer') || !parsed.description) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new Error('配对信息损坏或不完整');
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('配对信息损坏或不完整');
+  }
+
+  const envelope = parsed as Partial<PairingEnvelope>;
+  if (envelope.version !== 1 || (envelope.kind !== 'offer' && envelope.kind !== 'answer') || !envelope.description) {
     throw new Error('配对信息版本不受支持');
   }
-  return parsed;
+  return envelope as PairingEnvelope;
 }
 
 export function buildDisplayPairingUrl(payload: string): string {
