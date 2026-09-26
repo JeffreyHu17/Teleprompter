@@ -21,8 +21,10 @@ function loadInitialState(): SessionState {
 let state = loadInitialState();
 const listeners = new Set<(next: SessionState) => void>();
 
+export type BrowserCommandSyncMessage = { type: 'command'; id: string; command: SessionCommand };
+
 export type BrowserSyncMessage =
-  | { type: 'command'; id: string; command: SessionCommand }
+  | BrowserCommandSyncMessage
   | { type: 'state'; state: SessionState };
 
 const seenSyncMessages = new Set<string>();
@@ -55,7 +57,7 @@ function publishState(next: SessionState): void {
   listeners.forEach((listener) => listener(state));
 }
 
-export function createBrowserSyncCommand(command: SessionCommand): BrowserSyncMessage {
+export function createBrowserSyncCommand(command: SessionCommand): BrowserCommandSyncMessage {
   const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
