@@ -32,8 +32,10 @@ export function PrompterSurface({
   const currentCharacterRef = useRef<HTMLSpanElement>(null);
   const layoutSignatureRef = useRef('');
   const layoutRevisionRef = useRef(0);
+  const onLayoutRef = useRef(onLayout);
   const [anchorY, setAnchorY] = useState(0);
   const { typography, document, anchor } = state;
+  onLayoutRef.current = onLayout;
 
   const rangeStart = useMemo(() => rewindRangeStart(document.paragraphs.map((paragraph) => paragraph.text).join('\n'), anchor.globalOffset, state.tracking.rewindCharacters), [document.rawText, anchor.globalOffset, state.tracking.rewindCharacters]);
   const showRange = state.playbackMode === 'ai' && (showTextBounds ? state.tracking.showRewindRange : state.tracking.showRewindRangeOnDisplay);
@@ -75,7 +77,6 @@ export function PrompterSurface({
   }, [anchor.charOffset, anchor.paragraphIndex, document.revision, typography]);
 
   useLayoutEffect(() => {
-    if (!onLayout) return;
     layoutSignatureRef.current = '';
     let cancelled = false;
     let frame = 0;
@@ -135,7 +136,7 @@ export function PrompterSurface({
       if (signature === layoutSignatureRef.current) return;
       layoutRevisionRef.current = layout.revision;
       layoutSignatureRef.current = signature;
-      onLayout(layout);
+      onLayoutRef.current?.(layout);
     };
 
     const scheduleReport = () => {
@@ -164,7 +165,7 @@ export function PrompterSurface({
       observer.disconnect();
       fonts.removeEventListener('loadingdone', onFontsLoaded);
     };
-  }, [document.paragraphs, document.rawText, document.revision, onLayout, typography, typographySignature, viewportHeight, viewportWidth]);
+  }, [document.paragraphs, document.rawText, document.revision, typography, typographySignature, viewportHeight, viewportWidth]);
 
   const focusY = viewportHeight * typography.focusPosition / 100;
   const lineHeightPx = typography.fontSize * typography.lineHeight;
