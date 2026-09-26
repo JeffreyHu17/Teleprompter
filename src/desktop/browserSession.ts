@@ -20,6 +20,15 @@ function loadInitialState(): SessionState {
 
 let state = loadInitialState();
 const listeners = new Set<(next: SessionState) => void>();
+
+export type BrowserCommandSyncMessage = { type: 'command'; id: string; command: SessionCommand };
+
+export type BrowserSyncMessage =
+  | BrowserCommandSyncMessage
+  | { type: 'state'; state: SessionState };
+
+const seenSyncMessages = new Set<string>();
+const remoteSyncSenders = new Set<(message: BrowserSyncMessage) => void>();
 let lastTick = performance.now();
 let persistTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -43,30 +52,74 @@ export function getBrowserState(): SessionState {
   return state;
 }
 
+function publishState(next: SessionState): void {
+  state = next;
+  listeners.forEach((listener) => listener(state));
+}
+
+export function createBrowserSyncCommand(command: SessionCommand): BrowserCommandSyncMessage {
+  const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  return { type: 'command', id, command };
+}
+
+function rememberSyncMessage(id: string): boolean {
+  if (seenSyncMessages.has(id)) return false;
+  seenSyncMessages.add(id);
+  if (seenSyncMessages.size > 512) {
+    const oldest = seenSyncMessages.values().next().value;
+    if (oldest) seenSyncMessages.delete(oldest);
+  }
+  return true;
+}
+
+export function registerBrowserSyncTransport(send: (message: BrowserSyncMessage) => void): () => void {
+  remoteSyncSenders.add(send);
+  return () => remoteSyncSenders.delete(send);
+}
+
+export function receiveBrowserSyncMessage(message: BrowserSyncMessage): void {
+  if (message.type === 'state') {
+    publishState(message.state);
+    return;
+  }
+  if (!rememberSyncMessage(message.id)) return;
+  dispatchBrowserCommand(message.command, false);
+}
+
 export function dispatchBrowserCommand(command: SessionCommand, broadcast = true): void {
   const next = sessionReducer(state, command);
   if (next === state) return;
-  state = next;
-  listeners.forEach((listener) => listener(state));
+  publishState(next);
 
   if (!['tick', 'reportLayout', 'setTracker', 'setDisplayOpen', 'setPlaying', 'togglePlay', 'seek', 'scrollStep', 'setFocusAdjusting'].includes(command.type)) {
     schedulePersist();
   }
 
-  if (broadcast && syncChannel && command.type !== 'tick') {
-    try {
-      syncChannel.postMessage({ type: 'command', command });
-    } catch {
-      // Ignore serialization issues
+  if (broadcast && command.type !== 'tick') {
+    const message = createBrowserSyncCommand(command);
+    rememberSyncMessage(message.id);
+    if (syncChannel) {
+      try {
+        syncChannel.postMessage(message);
+      } catch {
+        // Ignore serialization issues
+      }
     }
+    remoteSyncSenders.forEach((send) => {
+      try {
+        send(message);
+      } catch {
+        // Ignore transport errors; connection UI owns recovery.
+      }
+    });
   }
 }
 
 if (syncChannel) {
-  syncChannel.onmessage = (event: MessageEvent<{ type: string; command?: SessionCommand }>) => {
-    if (event.data?.type === 'command' && event.data.command) {
-      dispatchBrowserCommand(event.data.command, false);
-    }
+  syncChannel.onmessage = (event: MessageEvent<BrowserSyncMessage>) => {
+    if (event.data?.type === 'command') receiveBrowserSyncMessage(event.data);
   };
 }
 

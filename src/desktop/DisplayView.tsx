@@ -1,12 +1,45 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, FlipHorizontal2, Maximize2, Minus, Pause, Play, Plus } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
-import type { LayoutReport, SessionCommand } from '../types/session';
+import type { LayoutReport, MirrorMode, ScriptAnchor, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
-import { anchorAt } from '../core/session';
+import { anchorAt, focusAnchorForState } from '../core/session';
+
+interface DisplayPointerState {
+  pointerId: number;
+  pointerType: string;
+  startY: number;
+  y: number;
+  moved: boolean;
+}
+
+const MIRROR_OPTIONS: Array<{ mode: MirrorMode; label: string }> = [
+  { mode: 'none', label: '正常' },
+  { mode: 'horizontal', label: '水平' },
+  { mode: 'vertical', label: '垂直' },
+  { mode: 'both', label: '双轴' },
+];
 
 export function DisplayView() {
   const { state, command } = useTeleprompter();
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [mirrorMenuOpen, setMirrorMenuOpen] = useState(false);
+  const stateRef = useRef(state);
+  const pointerRef = useRef<DisplayPointerState | null>(null);
+  const hideTimerRef = useRef<number | null>(null);
+  const clickTimerRef = useRef<number | null>(null);
+  const focusRestoreTimerRef = useRef<number | null>(null);
+  const pendingFocusAnchorRef = useRef<{
+    anchor: ScriptAnchor;
+    documentRevision: number;
+    viewportWidth: number;
+    viewportHeight: number;
+  } | null>(null);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -15,8 +48,53 @@ export function DisplayView() {
   }, []);
 
   const reportLayout = useCallback((layout: LayoutReport) => {
+    const pending = pendingFocusAnchorRef.current;
+    if (pending && layout.documentRevision !== pending.documentRevision) {
+      pendingFocusAnchorRef.current = null;
+      if (focusRestoreTimerRef.current !== null) {
+        window.clearTimeout(focusRestoreTimerRef.current);
+        focusRestoreTimerRef.current = null;
+      }
+      command({ type: 'reportLayout', layout });
+      return;
+    }
+
+    const viewportChanged = Boolean(
+      pending
+      && (layout.viewportWidth !== pending.viewportWidth || layout.viewportHeight !== pending.viewportHeight)
+    );
+
+    if (pending && viewportChanged) {
+      pendingFocusAnchorRef.current = null;
+      if (focusRestoreTimerRef.current !== null) {
+        window.clearTimeout(focusRestoreTimerRef.current);
+        focusRestoreTimerRef.current = null;
+      }
+      command({ type: 'reportLayout', layout, preserveFocusAnchor: pending.anchor });
+      return;
+    }
+
     command({ type: 'reportLayout', layout });
   }, [command]);
+
+  const revealControls = useCallback(() => {
+    setControlsVisible(true);
+    if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = window.setTimeout(() => {
+      setControlsVisible(false);
+      setMirrorMenuOpen(false);
+      hideTimerRef.current = null;
+    }, 3000);
+  }, []);
+
+  useEffect(() => {
+    revealControls();
+    return () => {
+      if (hideTimerRef.current !== null) window.clearTimeout(hideTimerRef.current);
+      if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+      if (focusRestoreTimerRef.current !== null) window.clearTimeout(focusRestoreTimerRef.current);
+    };
+  }, [revealControls]);
 
   useEffect(() => {
     let wakeLock: any = null;
@@ -40,13 +118,123 @@ export function DisplayView() {
     };
   }, []);
 
-  const toggleFullScreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      void document.documentElement.requestFullscreen().catch(() => {});
-    } else {
-      void document.exitFullscreen().catch(() => {});
+  const armFocusRestore = useCallback(() => {
+    const current = stateRef.current;
+    if (current.playbackMode !== 'fixed' || !current.layout) {
+      pendingFocusAnchorRef.current = null;
+      return;
     }
+
+    pendingFocusAnchorRef.current = {
+      anchor: focusAnchorForState(current),
+      documentRevision: current.document.revision,
+      viewportWidth: current.layout.viewportWidth,
+      viewportHeight: current.layout.viewportHeight,
+    };
+    if (focusRestoreTimerRef.current !== null) window.clearTimeout(focusRestoreTimerRef.current);
+    focusRestoreTimerRef.current = window.setTimeout(() => {
+      pendingFocusAnchorRef.current = null;
+      focusRestoreTimerRef.current = null;
+    }, 1500);
   }, []);
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      if (!pendingFocusAnchorRef.current) armFocusRestore();
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, [armFocusRestore]);
+
+  const toggleFullScreen = useCallback(async () => {
+    armFocusRestore();
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+      } else {
+        await document.exitFullscreen();
+      }
+    } catch {
+      pendingFocusAnchorRef.current = null;
+      if (focusRestoreTimerRef.current !== null) {
+        window.clearTimeout(focusRestoreTimerRef.current);
+        focusRestoreTimerRef.current = null;
+      }
+    }
+  }, [armFocusRestore]);
+
+  const schedulePlayToggle = useCallback(() => {
+    if (clickTimerRef.current !== null) window.clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = window.setTimeout(() => {
+      command({ type: 'togglePlay' });
+      clickTimerRef.current = null;
+    }, 220);
+  }, [command]);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    revealControls();
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-display-control]')) return;
+
+    pointerRef.current = {
+      pointerId: event.pointerId,
+      pointerType: event.pointerType,
+      startY: event.clientY,
+      y: event.clientY,
+      moved: false,
+    };
+
+    if (event.pointerType === 'touch') {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  }, [revealControls]);
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    revealControls();
+    const pointer = pointerRef.current;
+    if (!pointer || pointer.pointerId !== event.pointerId) return;
+
+    if (Math.abs(event.clientY - pointer.startY) > 6) pointer.moved = true;
+    if (pointer.pointerType !== 'touch') return;
+
+    const delta = pointer.y - event.clientY;
+    pointer.y = event.clientY;
+    if (Math.abs(delta) < 0.5) return;
+    event.preventDefault();
+    command({ type: 'scrollStep', deltaPx: delta });
+  }, [command, revealControls]);
+
+  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const pointer = pointerRef.current;
+    if (!pointer || pointer.pointerId !== event.pointerId) return;
+    pointerRef.current = null;
+
+    if (pointer.pointerType === 'touch') {
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture can already be released by the browser.
+      }
+    }
+
+    if (!pointer.moved) schedulePlayToggle();
+  }, [schedulePlayToggle]);
+
+  const handlePointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerRef.current?.pointerId === event.pointerId) pointerRef.current = null;
+  }, []);
+
+  const handleDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    const target = event.target as HTMLElement;
+    if (target.closest('[data-display-control]')) return;
+
+    if (clickTimerRef.current !== null) {
+      window.clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+    revealControls();
+    void toggleFullScreen();
+  }, [revealControls, toggleFullScreen]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -85,9 +273,10 @@ export function DisplayView() {
       } else if (isHome) {
         next = { type: 'seek', anchor: anchorAt(state.document, 0) };
       } else if (event.key === 'f' || event.key === 'F') {
-        toggleFullScreen();
+        void toggleFullScreen();
         event.preventDefault();
         event.stopPropagation();
+        revealControls();
         return;
       } else if (event.key === 'Escape') {
         if (document.fullscreenElement) {
@@ -101,21 +290,87 @@ export function DisplayView() {
         event.preventDefault();
         event.stopPropagation();
         command(next);
+        revealControls();
       }
     };
 
     window.addEventListener('keydown', onKeyDown, { capture: true });
     return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
-  }, [command, state.isPlaying, state.document, toggleFullScreen]);
+  }, [command, revealControls, state.isPlaying, state.document, toggleFullScreen]);
 
   return (
-    <div onDoubleClick={toggleFullScreen} style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}>
+    <div
+      className="display-touch-surface"
+      onDoubleClick={handleDoubleClick}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerCancel}
+      style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}
+    >
       <PrompterSurface
         state={state}
         viewportWidth={viewport.width}
         viewportHeight={viewport.height}
         onLayout={reportLayout}
       />
+
+      <div
+        className={`display-mirror-menu ${controlsVisible && mirrorMenuOpen ? 'is-visible' : ''}`}
+        data-display-control
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          revealControls();
+        }}
+      >
+        <span>镜像模式</span>
+        <div>
+          {MIRROR_OPTIONS.map(({ mode, label }) => (
+            <button
+              key={mode}
+              className={state.mirrorMode === mode ? 'active' : ''}
+              aria-pressed={state.mirrorMode === mode}
+              onClick={() => {
+                command({ type: 'setMirror', mode });
+                setMirrorMenuOpen(false);
+                revealControls();
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className={`display-control-bar ${controlsVisible ? 'is-visible' : ''}`}
+        data-display-control
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          revealControls();
+        }}
+      >
+        <button title="上一页" aria-label="上一页" onClick={() => command({ type: 'navigatePage', direction: -1 })}><ChevronLeft /></button>
+        <button title="降低速度" aria-label="降低速度" onClick={() => command({ type: 'adjustSpeed', delta: -10 })}><Minus /></button>
+        <button className="display-control-play" title="播放或暂停" aria-label="播放或暂停" onClick={() => command({ type: 'togglePlay' })}>
+          {state.isPlaying ? <Pause fill="currentColor" /> : <Play fill="currentColor" />}
+        </button>
+        <span>{Math.round(state.scrollSpeedPxPerSecond)} px/s</span>
+        <button title="提高速度" aria-label="提高速度" onClick={() => command({ type: 'adjustSpeed', delta: 10 })}><Plus /></button>
+        <button title="下一页" aria-label="下一页" onClick={() => command({ type: 'navigatePage', direction: 1 })}><ChevronRight /></button>
+        <button
+          title="镜像模式"
+          aria-label="镜像模式"
+          aria-expanded={mirrorMenuOpen}
+          onClick={() => {
+            setMirrorMenuOpen((current) => !current);
+            revealControls();
+          }}
+        >
+          <FlipHorizontal2 />
+        </button>
+        <button title="全屏" aria-label="全屏" onClick={() => { revealControls(); void toggleFullScreen(); }}><Maximize2 /></button>
+      </div>
     </div>
   );
 }

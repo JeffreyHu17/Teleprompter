@@ -29,6 +29,7 @@ import {
   Settings2,
   Trash2,
   Type,
+  Wifi,
   X,
 } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
@@ -67,6 +68,7 @@ export function ControlView() {
   const [paragraphsCollapsed, setParagraphsCollapsed] = useState(false);
   const [modelManagerOpen, setModelManagerOpen] = useState(false);
   const [modelActionError, setModelActionError] = useState<string | null>(null);
+  const [remoteModeOpen, setRemoteModeOpen] = useState(false);
   const [editorFontSize, setEditorFontSize] = useState<number>(() => {
     if (typeof window !== 'undefined' && window.localStorage) {
       const saved = Number(window.localStorage.getItem('teleprompter_editor_font_size'));
@@ -178,6 +180,14 @@ export function ControlView() {
     else if (!window.teleprompter) fileRef.current?.click();
   };
 
+  const enterRemoteMode = (mode: 'control' | 'display') => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('view');
+    url.searchParams.set('mode', mode);
+    url.hash = '';
+    window.location.assign(url.toString());
+  };
+
   const handleBrowserFile = async (file?: File) => {
     if (!file) return;
     if (file.name.toLowerCase().endsWith('.docx')) {
@@ -247,6 +257,7 @@ export function ControlView() {
         </div>
         <div className="header-actions">
           <button className="button secondary" onClick={() => void openImport()}><FileUp size={17} />导入稿件</button>
+          {!window.teleprompter && <button className="button secondary" onClick={() => setRemoteModeOpen(true)}><Wifi size={17} />远程模式</button>}
           <button className="button primary" onClick={() => toggleDisplay(!state.displayOpen)}>
             <MonitorUp size={17} />{state.displayOpen ? '关闭显示' : '打开显示'}
           </button>
@@ -607,6 +618,32 @@ export function ControlView() {
           </button>
         )}
       </div>
+      {remoteModeOpen && (
+        <div className="remote-mode-backdrop" role="presentation" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setRemoteModeOpen(false);
+        }}>
+          <section className="remote-mode-dialog" role="dialog" aria-modal="true" aria-labelledby="remote-mode-title">
+            <header>
+              <div>
+                <span className="eyebrow">REMOTE</span>
+                <h2 id="remote-mode-title">选择远程模式</h2>
+              </div>
+              <button className="icon-button compact" title="关闭" aria-label="关闭" onClick={() => setRemoteModeOpen(false)}><X /></button>
+            </header>
+            <p>一机模式保持当前工作台不变。远程模式通过 WebRTC 让两台设备直接连接。</p>
+            <div className="remote-mode-options">
+              <button onClick={() => enterRemoteMode('control')}>
+                <strong>作为主控端</strong>
+                <span>手机 / 平板控制播放、排版与稿件，另一台设备负责显示。</span>
+              </button>
+              <button onClick={() => enterRemoteMode('display')}>
+                <strong>作为显示端</strong>
+                <span>调用摄像头扫描主控二维码，连接后作为提词显示设备。</span>
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
       {modelManagerOpen && (
         <div className="model-manager-backdrop" role="presentation" onMouseDown={(event) => {
           if (event.target === event.currentTarget) setModelManagerOpen(false);

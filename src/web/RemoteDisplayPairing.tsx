@@ -1,0 +1,151 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Camera, Copy, Link2, RotateCcw } from 'lucide-react';
+import { QrCode } from './remote/QrCode';
+import { QrScanner } from './remote/QrScanner';
+import { copyText } from './remote/clipboard';
+import {
+  extractPairingPayload,
+  pairingPayloadFromLocation,
+  RemotePeer,
+  type RemotePeerSnapshot,
+} from './remote/remotePeer';
+
+export function RemoteDisplayPairing() {
+  const peerRef = useRef<RemotePeer | null>(null);
+  if (!peerRef.current) peerRef.current = new RemotePeer('display');
+  const peer = peerRef.current;
+
+  const [snapshot, setSnapshot] = useState<RemotePeerSnapshot>(peer.current());
+  const [answer, setAnswer] = useState('');
+  const [manualOffer, setManualOffer] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const startedRef = useRef(false);
+
+  useEffect(() => peer.subscribe(setSnapshot), [peer]);
+  useEffect(() => () => peer.close(), [peer]);
+
+  const acceptOffer = useCallback(async (value: string): Promise<boolean> => {
+    const payload = extractPairingPayload(value);
+    if (!payload) {
+      setError('没有在二维码或文本中找到有效的主控配对信息');
+      return false;
+    }
+
+    setError(null);
+    setCopyStatus(null);
+    try {
+      const nextAnswer = await peer.acceptOffer(payload);
+      setAnswer(nextAnswer);
+      setScannerOpen(false);
+      return true;
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : String(nextError));
+      return false;
+    }
+  }, [peer]);
+
+  useEffect(() => {
+    if (startedRef.current) return;
+    const payload = pairingPayloadFromLocation();
+    if (!payload) return;
+    startedRef.current = true;
+    void acceptOffer(payload);
+  }, [acceptOffer]);
+
+  useEffect(() => {
+    if (snapshot.status !== 'connected') return;
+    const url = new URL(window.location.href);
+    url.hash = '';
+    history.replaceState(null, '', url);
+  }, [snapshot.status]);
+
+  const handleOfferScan = useCallback((value: string) => acceptOffer(value), [acceptOffer]);
+
+  const copyAnswer = async () => {
+    const copied = await copyText(answer);
+    setCopyStatus(copied ? '返回信息已复制' : '复制失败，请长按文本或改用二维码扫描');
+  };
+
+  const resetPairing = () => {
+    peer.close();
+    setAnswer('');
+    setManualOffer('');
+    setError(null);
+    setCopyStatus(null);
+    startedRef.current = false;
+  };
+
+  if (snapshot.status === 'connected') return null;
+
+  return (
+    <div className="remote-display-pairing">
+      <section className="remote-display-card">
+        <header className="remote-display-header">
+          <span className="remote-display-kicker">REMOTE DISPLAY</span>
+          <h1>{answer ? '返回主控设备' : '连接主控设备'}</h1>
+          <p>
+            {answer
+              ? '主控扫描返回二维码后即可完成 P2P 连接。'
+              : '扫描主控二维码最方便；也可以粘贴配对链接或原始配对信息。'}
+          </p>
+        </header>
+
+        {answer ? (
+          <div className="remote-display-answer">
+            <div className="remote-display-qr-wrap">
+              <QrCode value={answer} label="返回主控设备的配对二维码" size={280} />
+            </div>
+            <div className="remote-display-actions">
+              <button onClick={() => void copyAnswer()}><Copy />复制返回信息</button>
+              <button onClick={resetPairing}><RotateCcw />重新配对</button>
+            </div>
+            {copyStatus && <p className={copyStatus.includes('失败') ? 'remote-error' : 'remote-copy-status'}>{copyStatus}</p>}
+            <details className="remote-display-manual">
+              <summary><Link2 />查看原始返回信息</summary>
+              <textarea readOnly value={answer} onFocus={(event) => event.currentTarget.select()} />
+            </details>
+          </div>
+        ) : (
+          <div className="remote-display-connect">
+            <button className="remote-primary remote-scan-button" onClick={() => setScannerOpen(true)}>
+              <Camera aria-hidden="true" />
+              <span>扫描主控二维码</span>
+            </button>
+
+            <div className="remote-display-divider"><span>或</span></div>
+
+            <label className="remote-display-manual-input">
+              <span>手动粘贴配对信息</span>
+              <textarea
+                value={manualOffer}
+                onChange={(event) => setManualOffer(event.target.value)}
+                placeholder="粘贴主控配对链接或 teleprompter-pair-v1:…"
+              />
+            </label>
+            <button className="remote-display-connect-button" disabled={!manualOffer.trim()} onClick={() => void acceptOffer(manualOffer.trim())}>
+              连接主控
+            </button>
+          </div>
+        )}
+
+        {(snapshot.status === 'preparing' || snapshot.status === 'connecting') && (
+          <p className="remote-display-status">
+            {snapshot.status === 'preparing' ? '正在准备本地 P2P 连接…' : '正在建立连接…'}
+          </p>
+        )}
+        {(error || snapshot.error) && <p className="remote-error remote-display-status">{error || snapshot.error}</p>}
+      </section>
+
+      {scannerOpen && (
+        <QrScanner
+          title="扫描主控二维码"
+          hint="对准主控设备上的配对二维码"
+          onScan={handleOfferScan}
+          onClose={() => setScannerOpen(false)}
+        />
+      )}
+    </div>
+  );
+}

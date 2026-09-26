@@ -1,7 +1,30 @@
+import { lazy, Suspense } from 'react';
 import { ControlView } from './ControlView';
 import { DisplayView } from './DisplayView';
 
+const RemoteControlView = lazy(() => import('../web/RemoteControlView').then((module) => ({ default: module.RemoteControlView })));
+const RemoteDisplayPairing = lazy(() => import('../web/RemoteDisplayPairing').then((module) => ({ default: module.RemoteDisplayPairing })));
+
+function WebRemoteDisplay() {
+  return (
+    <>
+      <DisplayView />
+      <Suspense fallback={null}><RemoteDisplayPairing /></Suspense>
+    </>
+  );
+}
+
 export function App() {
-  const view = new URLSearchParams(window.location.search).get('view');
-  return view === 'display' ? <DisplayView /> : <ControlView />;
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get('view');
+  const mode = params.get('mode');
+  const webRuntime = !window.teleprompter;
+
+  if (view === 'display') return <DisplayView />;
+  if (webRuntime && mode === 'display') return <WebRemoteDisplay />;
+  if (webRuntime && mode === 'control') {
+    return <Suspense fallback={null}><RemoteControlView /></Suspense>;
+  }
+
+  return <ControlView />;
 }
