@@ -40,7 +40,8 @@
     "react": "latest",
     "react-dom": "latest",
     "sherpa-onnx-node": "1.13.3",
-    "qrcode-generator": "2.0.4"
+    "qrcode-generator": "2.0.4",
+    "jsqr": "1.4.0"
   },
   "optionalDependencies": {
     "sherpa-onnx-darwin-arm64": "1.13.3",
