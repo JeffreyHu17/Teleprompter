@@ -111,9 +111,16 @@ export function RemoteControlView() {
     command({ type: 'setTypography', patch: { ...DEFAULT_TYPOGRAPHY } });
   };
 
+  const remoteConnected = peerState.status === 'connected';
+  const reportLocalPreviewLayout = useCallback((layout: SessionState['layout']) => {
+    if (remoteConnected || !layout) return;
+    command({ type: 'reportLayout', layout });
+  }, [command, remoteConnected]);
+
   return (
     <main className="remote-control-app">
-      <header className="remote-control-header">
+      <div className="remote-control-fixed">
+        <header className="remote-control-header">
         <div>
           <span className={peerState.status === 'connected' ? 'remote-dot connected' : 'remote-dot'} />
           <div><strong>Teleprompter Remote</strong><small>{statusLabel(peerState)}</small></div>
@@ -122,19 +129,25 @@ export function RemoteControlView() {
           <span className="remote-page">{pageNumber} / {Math.max(1, state.layout?.pageCount ?? 1)}</span>
           <button onClick={returnToSingleDeviceMode}>一机模式</button>
         </div>
-      </header>
+        </header>
 
-      <RemoteProgramPreview state={state} />
+        <RemoteProgramPreview state={state} onLayout={reportLocalPreviewLayout} />
 
-      <section className="remote-transport">
+        <section className="remote-transport">
         <button aria-label="上一页" onClick={() => command({ type: 'navigatePage', direction: -1 })}><ChevronLeft /></button>
         <button className="remote-play" aria-label="播放或暂停" onClick={() => command({ type: 'togglePlay' })}>
           {state.isPlaying ? <Pause /> : <Play fill="currentColor" />}
         </button>
         <button aria-label="下一页" onClick={() => command({ type: 'navigatePage', direction: 1 })}><ChevronRight /></button>
-      </section>
+        </section>
+      </div>
 
-      <section className="remote-speed">
+      <div className="remote-control-scroll">
+        {!remoteConnected && (
+          <p className="remote-local-preview-note">尚未连接显示设备：当前可在本机预览播放、翻页和调速；连接后将自动使用显示端的真实排版。</p>
+        )}
+
+        <section className="remote-speed">
         <span>滚动速度</span>
         <div>
           <button aria-label="降低速度" onClick={() => command({ type: 'adjustSpeed', delta: -5 })}><Minus /></button>
@@ -143,7 +156,7 @@ export function RemoteControlView() {
         </div>
       </section>
 
-      <details className="remote-panel" open>
+        <details className="remote-panel" open
         <summary><MonitorUp />远程显示</summary>
         <div className="remote-panel-body remote-pairing-panel">
           {!pairingUrl && peerState.status !== 'connected' && (
@@ -171,17 +184,17 @@ export function RemoteControlView() {
           )}
           {(error || peerState.error) && <p className="remote-error">{error || peerState.error}</p>}
         </div>
-      </details>
+        </details>
 
-      <details className="remote-panel">
+        <details className="remote-panel">
         <summary>稿件编辑</summary>
         <div className="remote-panel-body">
           <textarea className="remote-script-editor" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commitDraft} />
           <button onClick={commitDraft}>同步稿件</button>
         </div>
-      </details>
+        </details>
 
-      <details className="remote-panel">
+        <details className="remote-panel">
         <summary>显示排版</summary>
         <div className="remote-panel-body remote-settings">
           <label>字号 <output>{state.typography.fontSize}px</output><input type="range" min="16" max="240" value={state.typography.fontSize} onChange={(event) => command({ type: 'setTypography', patch: { fontSize: Number(event.target.value) } })} /></label>
@@ -209,7 +222,8 @@ export function RemoteControlView() {
             <button onClick={resetTypography}><RotateCcw />恢复默认排版</button>
           </div>
         </div>
-      </details>
+          </details>
+      </div>
 
       {scannerOpen && (
         <QrScanner
