@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 import { availableParallelism } from 'node:os';
 import { Worker } from 'node:worker_threads';
+import { manualPositionCommand, speechFollowActive, transcriptCommands } from '../src/core/speechFollow.js';
 import { BidirectionalScriptTracker } from '../src/core/scriptTracker.js';
 import { anchorAt, initialSessionState, sessionReducer } from '../src/core/session.js';
 import type { DisplayInfo, FunAsrBackend, FunAsrModelId, FunAsrModelState, ImportResult, SessionCommand, SessionState } from '../src/types/session.js';
@@ -856,6 +857,7 @@ function stopSpeechRecognition(paused = false): void {
 }
 
 function handleSpeechEvent(event: NativeSpeechEvent): void {
+  if (!speechFollowActive(state)) return;
   if (event.type === 'segment') {
     if (state.speech.engine === 'funasr' && event.path) enqueueFunAsrSegment(event.path, event.durationMs ?? 0);
     return;
@@ -870,24 +872,7 @@ function handleSpeechEvent(event: NativeSpeechEvent): void {
   }
 
   if (event.type === 'transcript') {
-    const transcript = event.text?.trim() ?? '';
-    const match = scriptTracker.match(state.document, transcript, state.anchor.globalOffset, event.isFinal ?? false, Date.now(), state.tracking.rewindCharacters);
-    dispatch({
-      type: 'setTracker',
-      status: 'listening',
-      patch: {
-        transcript,
-        asrConfidence: event.confidence ?? null,
-        matchConfidence: match?.confidence ?? null,
-        direction: match?.direction ?? null,
-        message: match ? null : '正在确认稿件位置',
-        onDevice: event.onDevice ?? true,
-      },
-    });
-    if (match?.direction === 'backward') dispatch({ type: 'recordReread', event: { documentRevision: state.document.revision, fromOffset: state.anchor.globalOffset, toOffset: match.offset, observedAt: Date.now(), confidence: match.confidence, transcript, timeBasis: 'recognition-observation' } });
-    if (match && match.direction !== 'hold') {
-      dispatch({ type: 'seek', anchor: anchorAt(state.document, match.offset) });
-    }
+    for (const next of transcriptCommands(state, event, scriptTracker)) dispatch(next);
     return;
   }
 
@@ -1126,12 +1111,8 @@ function handleSessionCommand(command: SessionCommand & { currentScrollOffsetPx?
   if (typeof command.currentScrollOffsetPx === 'number') {
     state.scrollOffsetPx = command.currentScrollOffsetPx;
   }
-  const manualPositionCommand = command.type === 'navigatePage'
-    || command.type === 'navigateParagraph'
-    || command.type === 'rewindStep'
-    || command.type === 'seek';
   dispatch(command);
-  if (manualPositionCommand) scriptTracker.reset(state.document, Date.now(), 2000);
+  if (manualPositionCommand(command)) scriptTracker.reset(state.document, Date.now(), 2000);
   if (command.type === 'setDocument') scriptTracker.reset(state.document, Date.now(), 1200);
   if (command.type === 'setMode') {
     if (command.mode === 'ai' && state.microphoneEnabled) void startSpeechRecognition();
