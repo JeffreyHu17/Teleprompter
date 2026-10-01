@@ -29,7 +29,8 @@ export type BrowserSyncMessage =
 
 const seenSyncMessages = new Set<string>();
 const remoteSyncSenders = new Set<(message: BrowserSyncMessage) => void>();
-let lastTick = performance.now();
+let lastTick = 0;
+let tickFrame: number | null = null;
 let persistTimeout: ReturnType<typeof setTimeout> | null = null;
 
 const syncChannel = typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined'
@@ -54,6 +55,7 @@ export function getBrowserState(): SessionState {
 
 function publishState(next: SessionState): void {
   state = next;
+  updatePlaybackClock();
   listeners.forEach((listener) => listener(state));
 }
 
@@ -128,12 +130,33 @@ export function subscribeBrowserState(listener: (next: SessionState) => void): (
   return () => listeners.delete(listener);
 }
 
+function shouldTick(): boolean {
+  return state.isPlaying && state.playbackMode === 'fixed' && Boolean(state.layout);
+}
+
+function updatePlaybackClock(): void {
+  if (typeof window === 'undefined') return;
+  if (!shouldTick()) {
+    if (tickFrame !== null) cancelAnimationFrame(tickFrame);
+    tickFrame = null;
+    return;
+  }
+  if (tickFrame === null) {
+    lastTick = performance.now();
+    tickFrame = requestAnimationFrame(tick);
+  }
+}
+
 function tick(now: number): void {
+  // Keep the current frame marked active while publishing: a subscriber can
+  // pause or restart playback synchronously without creating a second clock.
+  const activeFrame = tickFrame;
   const delta = now - lastTick;
   lastTick = now;
   const elapsedMs = delta > 100 ? 16 : Math.max(0, delta);
-  if (state.isPlaying && state.playbackMode === 'fixed') dispatchBrowserCommand({ type: 'tick', elapsedMs });
-  requestAnimationFrame(tick);
+  if (shouldTick()) dispatchBrowserCommand({ type: 'tick', elapsedMs });
+  if (tickFrame !== activeFrame || tickFrame === null) return;
+  tickFrame = shouldTick() ? requestAnimationFrame(tick) : null;
 }
 
-if (typeof window !== 'undefined') requestAnimationFrame(tick);
+updatePlaybackClock();

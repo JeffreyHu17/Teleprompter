@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, FileUp, FlipHorizontal2, Mic2, MicOff, Pause, Play, Settings2, Type, X } from 'lucide-react';
 import { BidirectionalScriptTracker } from '../core/scriptTracker';
-import { anchorAt } from '../core/session';
+import { manualPositionCommand, speechFollowActive, transcriptCommands } from '../core/speechFollow';
+import { getBrowserState } from '../desktop/browserSession';
 import { useMobileTeleprompter } from './useMobileTeleprompter';
 import { AndroidSpeech, type AndroidSpeechEvent } from './androidSpeech';
 import { PrompterSurface } from '../components/PrompterSurface';
@@ -9,12 +10,19 @@ import { PrompterSurface } from '../components/PrompterSurface';
 type MobileSheet = 'script' | 'settings' | null;
 
 export function MobileView() {
-  const { state, command } = useMobileTeleprompter();
+  const { state, command: dispatchCommand } = useMobileTeleprompter();
   const [sheet, setSheet] = useState<MobileSheet>(null);
   const [draft, setDraft] = useState(state.document.rawText);
   const [speechAvailable, setSpeechAvailable] = useState<boolean | null>(null);
   const trackerRef = useRef(new BidirectionalScriptTracker());
   const stateRef = useRef(state);
+  const command = useCallback((next: Parameters<typeof dispatchCommand>[0]) => {
+    dispatchCommand(next);
+    // Refresh immediately: a native event can arrive before React's next effect.
+    stateRef.current = getBrowserState();
+    if (manualPositionCommand(next)) trackerRef.current.reset(stateRef.current.document, Date.now(), 2000);
+    if (next.type === 'setDocument') trackerRef.current.reset(stateRef.current.document, Date.now(), 1200);
+  }, [dispatchCommand]);
   const fileRef = useRef<HTMLInputElement>(null);
   const viewport = useViewport();
   const aiListening = state.playbackMode === 'ai' && state.microphoneEnabled;
@@ -28,7 +36,7 @@ export function MobileView() {
     void AndroidSpeech.availability()
       .then(({ available }) => setSpeechAvailable(available))
       .catch(() => setSpeechAvailable(false));
-    void AndroidSpeech.addListener('speechEvent', (event) => handleSpeechEvent(event, stateRef.current, command, trackerRef.current)).then((handle) => {
+    void AndroidSpeech.addListener('speechEvent', (event) => { if (cancelled) return; handleSpeechEvent(event, stateRef.current, dispatchCommand, trackerRef.current); stateRef.current = getBrowserState(); }).then((handle) => {
       if (cancelled) void handle.remove();
       else listener = handle;
     }).catch(() => setSpeechAvailable(false));
@@ -36,20 +44,20 @@ export function MobileView() {
       cancelled = true;
       void listener?.remove();
     };
-  }, [command]);
+  }, [dispatchCommand]);
 
   useEffect(() => {
     if (!aiListening) {
       void AndroidSpeech.stop().catch(() => undefined);
       return;
     }
+    let cancelled = false;
     trackerRef.current.reset(state.document);
-    void AndroidSpeech.start({ locale: state.speech.locale }).catch((error) => command({
-      type: 'setTracker',
-      status: 'lost',
-      patch: { message: error instanceof Error ? error.message : String(error), inputLevel: 0 },
-    }));
-    return () => { void AndroidSpeech.stop().catch(() => undefined); };
+    void AndroidSpeech.start({ locale: state.speech.locale }).catch((error) => {
+      if (cancelled || !speechFollowActive(stateRef.current)) return;
+      command({ type: 'setTracker', status: 'lost', patch: { message: error instanceof Error ? error.message : String(error), inputLevel: 0 } });
+    });
+    return () => { cancelled = true; void AndroidSpeech.stop().catch(() => undefined); };
   }, [aiListening, command, state.document, state.speech.locale]);
 
   const pageLabel = useMemo(() => `${state.anchor.paragraphIndex + 1} / ${state.document.paragraphs.length}`, [state.anchor.paragraphIndex, state.document.paragraphs.length]);
@@ -121,6 +129,7 @@ function MobileSettings({ state, command }: { state: ReturnType<typeof useMobile
 }
 
 function handleSpeechEvent(event: AndroidSpeechEvent, state: ReturnType<typeof useMobileTeleprompter>['state'], command: ReturnType<typeof useMobileTeleprompter>['command'], tracker: BidirectionalScriptTracker): void {
+  if (!speechFollowActive(state)) return;
   if (event.type === 'level') {
     command({ type: 'setTracker', status: state.trackerStatus, patch: { inputLevel: Math.max(0, Math.min(1, event.level ?? 0)) } });
     return;
@@ -130,11 +139,7 @@ function handleSpeechEvent(event: AndroidSpeechEvent, state: ReturnType<typeof u
     return;
   }
   if (event.type === 'transcript') {
-    const transcript = event.text?.trim() ?? '';
-    const match = tracker.match(state.document, transcript, state.anchor.globalOffset, event.isFinal ?? false, Date.now(), state.tracking.rewindCharacters);
-    command({ type: 'setTracker', status: 'listening', patch: { transcript, asrConfidence: event.confidence ?? null, matchConfidence: match?.confidence ?? null, direction: match?.direction ?? null, onDevice: true, message: match ? null : '正在确认稿件位置' } });
-    if (match?.direction === 'backward') command({ type: 'recordReread', event: { documentRevision: state.document.revision, fromOffset: state.anchor.globalOffset, toOffset: match.offset, observedAt: Date.now(), confidence: match.confidence, transcript, timeBasis: 'recognition-observation' } });
-    if (match && match.direction !== 'hold') command({ type: 'seek', anchor: anchorAt(state.document, match.offset) });
+    for (const next of transcriptCommands(state, event, tracker)) command(next);
     return;
   }
   command({ type: 'setTracker', status: event.status === 'listening' ? 'listening' : 'idle', patch: { message: event.message ?? null, onDevice: event.onDevice ?? true } });
