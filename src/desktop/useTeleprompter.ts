@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { dispatchBrowserCommand, getBrowserState, subscribeBrowserState } from './browserSession';
 import { sessionReducer } from '../core/session';
 import type { DisplayInfo, FunAsrModelId, ImportResult, SessionCommand, SessionState } from '../types/session';
@@ -8,6 +8,8 @@ import { WindowsSpeechCapture } from './windowsSpeechCapture';
 
 export function useTeleprompter() {
   const [state, setState] = useState<SessionState>(getBrowserState());
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const [displays, setDisplays] = useState<DisplayInfo[]>([
     { id: 'browser', label: '浏览器预览', width: window.innerWidth, height: window.innerHeight, scaleFactor: 1, primary: true },
   ]);
@@ -124,15 +126,15 @@ export function useTeleprompter() {
     if (window.teleprompter) {
       const enriched = {
         ...next,
-        ...(next.type === 'togglePlay' || next.type === 'setPlaying' ? { scrollOffsetPx: next.scrollOffsetPx ?? state.scrollOffsetPx } : {}),
-        currentScrollOffsetPx: state.scrollOffsetPx,
+        ...(next.type === 'togglePlay' || next.type === 'setPlaying' ? { scrollOffsetPx: next.scrollOffsetPx ?? stateRef.current.scrollOffsetPx } : {}),
+        currentScrollOffsetPx: stateRef.current.scrollOffsetPx,
       };
       setState((current) => sessionReducer(current, enriched as SessionCommand));
       window.teleprompter.command(enriched as SessionCommand);
       return;
     }
     dispatchBrowserCommand(next);
-  }, [state.scrollOffsetPx]);
+  }, []);
 
   const toggleDisplay = useCallback((open?: boolean) => {
     if (window.teleprompter) window.teleprompter.toggleDisplay(open);

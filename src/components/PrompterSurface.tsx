@@ -37,8 +37,9 @@ export function PrompterSurface({
   const { typography, document, anchor } = state;
   onLayoutRef.current = onLayout;
 
-  const rangeStart = useMemo(() => rewindRangeStart(document.paragraphs.map((paragraph) => paragraph.text).join('\n'), anchor.globalOffset, state.tracking.rewindCharacters), [document.rawText, anchor.globalOffset, state.tracking.rewindCharacters]);
   const showRange = state.playbackMode === 'ai' && (showTextBounds ? state.tracking.showRewindRange : state.tracking.showRewindRangeOnDisplay);
+  const scriptText = useMemo(() => document.paragraphs.map((paragraph) => paragraph.text).join('\n'), [document.paragraphs]);
+  const rangeStart = useMemo(() => showRange ? rewindRangeStart(scriptText, anchor.globalOffset, state.tracking.rewindCharacters) : 0, [showRange, scriptText, anchor.globalOffset, state.tracking.rewindCharacters]);
   const rangeText = (text: string, offset: number) => {
     if (!showRange) return text;
     const start = Math.max(0, Math.min(text.length, rangeStart - offset));
@@ -74,7 +75,7 @@ export function PrompterSurface({
       return;
     }
     if (active) setAnchorY(active.offsetTop);
-  }, [anchor.charOffset, anchor.paragraphIndex, document.revision, typography]);
+  }, [anchor.charOffset, anchor.paragraphIndex, document.revision, state.playbackMode, typography, viewportWidth, viewportHeight]);
 
   useLayoutEffect(() => {
     layoutSignatureRef.current = '';
@@ -84,6 +85,10 @@ export function PrompterSurface({
       const stage = stageRef.current;
       const paragraphElements = paragraphRefs.current.slice(0, document.paragraphs.length);
       if (cancelled || !stage || !paragraphElements.length) return;
+      // Font loading and viewport reflow can move the AI marker without changing
+      // the recognized character. Refresh its measurement with the layout.
+      const marker = currentCharacterRef.current;
+      if (marker) setAnchorY(marker.offsetTop + marker.offsetHeight / 2);
       const focusY = viewportHeight * typography.focusPosition / 100;
       const pageHeight = Math.max(200, viewportHeight - focusY * 0.65);
       const pageAnchors: ScriptAnchor[] = [];
@@ -140,6 +145,7 @@ export function PrompterSurface({
     };
 
     const scheduleReport = () => {
+      if (cancelled) return;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(reportLayout);
     };
@@ -166,6 +172,31 @@ export function PrompterSurface({
       fonts.removeEventListener('loadingdone', onFontsLoaded);
     };
   }, [document.paragraphs, document.rawText, document.revision, typography, typographySignature, viewportHeight, viewportWidth]);
+
+  // Scroll ticks change only the transform. Keep the script subtree and ref
+  // callbacks stable until text, AI highlighting or the rewind range changes.
+  const paragraphs = useMemo(() => document.paragraphs.map((paragraph, index) => {
+    const current = state.playbackMode === 'ai' && index === anchor.paragraphIndex;
+    const latinAtAnchor = current && /[A-Za-z0-9]/.test(paragraph.text[anchor.charOffset] ?? '');
+    let markerStart = anchor.charOffset;
+    let markerEnd = anchor.charOffset + 1;
+    if (latinAtAnchor) {
+      while (markerStart > 0 && /[A-Za-z0-9'_-]/.test(paragraph.text[markerStart - 1])) markerStart -= 1;
+      while (markerEnd < paragraph.text.length && /[A-Za-z0-9'_-]/.test(paragraph.text[markerEnd])) markerEnd += 1;
+    }
+    const read = current ? paragraph.text.slice(0, markerStart) : '';
+    const marker = current ? paragraph.text.slice(markerStart, markerEnd) : '';
+    const unread = current ? paragraph.text.slice(markerEnd) : paragraph.text;
+    return (
+      <p
+        key={paragraph.id}
+        ref={(element) => { paragraphRefs.current[index] = element; }}
+        className={state.playbackMode === 'ai' && index < anchor.paragraphIndex ? 'is-read' : current ? 'is-current' : ''}
+      >
+        {current ? <><span className="read-text">{rangeText(read, paragraph.startOffset)}</span><span ref={currentCharacterRef} className="current-character">{marker || ' '}</span>{unread}</> : rangeText(unread, paragraph.startOffset)}
+      </p>
+    );
+  }), [document.paragraphs, state.playbackMode, anchor.paragraphIndex, anchor.charOffset, anchor.globalOffset, showRange, rangeStart]);
 
   const focusY = viewportHeight * typography.focusPosition / 100;
   const lineHeightPx = typography.fontSize * typography.lineHeight;
@@ -211,28 +242,7 @@ export function PrompterSurface({
             '--stage-y': `${Number(translateY.toFixed(2))}px`,
           } as React.CSSProperties}
         >
-        {document.paragraphs.map((paragraph, index) => {
-          const current = state.playbackMode === 'ai' && index === anchor.paragraphIndex;
-          const latinAtAnchor = current && /[A-Za-z0-9]/.test(paragraph.text[anchor.charOffset] ?? '');
-          let markerStart = anchor.charOffset;
-          let markerEnd = anchor.charOffset + 1;
-          if (latinAtAnchor) {
-            while (markerStart > 0 && /[A-Za-z0-9'_-]/.test(paragraph.text[markerStart - 1])) markerStart -= 1;
-            while (markerEnd < paragraph.text.length && /[A-Za-z0-9'_-]/.test(paragraph.text[markerEnd])) markerEnd += 1;
-          }
-          const read = current ? paragraph.text.slice(0, markerStart) : '';
-          const marker = current ? paragraph.text.slice(markerStart, markerEnd) : '';
-          const unread = current ? paragraph.text.slice(markerEnd) : paragraph.text;
-          return (
-            <p
-              key={paragraph.id}
-              ref={(element) => { paragraphRefs.current[index] = element; }}
-              className={state.playbackMode === 'ai' && index < anchor.paragraphIndex ? 'is-read' : current ? 'is-current' : ''}
-            >
-              {current ? <><span className="read-text">{rangeText(read, paragraph.startOffset)}</span><span ref={currentCharacterRef} className="current-character">{marker || ' '}</span>{unread}</> : rangeText(unread, paragraph.startOffset)}
-            </p>
-          );
-        })}
+        {paragraphs}
         </div>
       </div>
       <div className="display-status" aria-hidden="true">

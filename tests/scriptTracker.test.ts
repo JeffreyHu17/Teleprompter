@@ -137,3 +137,111 @@ describe('configured rewind range', () => {
     expect(new BidirectionalScriptTracker().match(document, query, current, true, 1000, 0)?.direction).not.toBe('backward');
   });
 });
+
+describe('streaming stability and source offsets', () => {
+  it('holds a repeated interim or final result after a rewind, but accepts a new utterance', () => {
+    const document = createDocument('test', '今天的天气非常晴朗，阳光明媚，微风拂面。');
+    const tracker = new BidirectionalScriptTracker();
+    const first = tracker.match(document, '阳光明媚', document.totalCharacters, false, 1000)!;
+    expect(first.direction).toBe('backward');
+    expect(first.offset).toBe(10);
+    expect(tracker.match(document, '阳光明媚', first.offset, false, 1100)?.direction).toBe('hold');
+    expect(tracker.match(document, '阳光明媚', first.offset, true, 1200)?.direction).toBe('hold');
+    expect(tracker.match(document, '阳光明媚', first.offset, false, 2000)?.direction).toBe('forward');
+  });
+
+  it('ignores duplicate final deliveries but permits an identical utterance after a gap', () => {
+    const document = createDocument('test', '今天的天气非常晴朗，阳光明媚，微风拂面。');
+    const tracker = new BidirectionalScriptTracker();
+    const first = tracker.match(document, '阳光明媚', document.totalCharacters, false, 1000)!;
+    expect(tracker.match(document, '阳光明媚', first.offset, true, 1100)?.direction).toBe('hold');
+    expect(tracker.match(document, '阳光明媚', first.offset, true, 1200)?.direction).toBe('hold');
+    expect(tracker.match(document, '阳光明媚', first.offset, true, 2000)?.direction).toBe('forward');
+  });
+
+  it('permits a new identical partial after a long gap without a final event', () => {
+    const document = createDocument('test', '今天的天气非常晴朗，阳光明媚，微风拂面。');
+    const tracker = new BidirectionalScriptTracker();
+    const first = tracker.match(document, '阳光明媚', document.totalCharacters, false, 1000)!;
+    expect(tracker.match(document, '阳光明媚', first.offset, false, 4000)?.direction).toBe('forward');
+  });
+
+  it('reconsiders a cached partial when the rewind setting changes', () => {
+    const document = createDocument('test', '今天的天气非常晴朗，阳光明媚，微风拂面。');
+    const tracker = new BidirectionalScriptTracker();
+    tracker.match(document, '阳光明媚', document.totalCharacters, false, 1000, 560);
+    expect(tracker.match(document, '阳光明媚', document.totalCharacters, false, 1100, 0)?.direction).not.toBe('backward');
+  });
+
+  it('maps compatibility text without Intl.Segmenter on older WebViews', () => {
+    const descriptor = Object.getOwnPropertyDescriptor(Intl, 'Segmenter')!;
+    Object.defineProperty(Intl, 'Segmenter', { value: undefined, configurable: true });
+    try {
+      const text = '欢迎使用 ﬃ e\u0301cole 功能测试';
+      const document = createDocument('unicode', text);
+      const match = new BidirectionalScriptTracker().match(document, '欢迎使用 ffi école 功能测试', 0, true, 1000);
+      expect(match?.offset).toBe(text.length);
+    } finally {
+      Object.defineProperty(Intl, 'Segmenter', descriptor);
+    }
+  });
+
+  it('does not mistake a shortened interim hypothesis for a reread', () => {
+    const document = createDocument('test', '欢迎使用智能提词器，我们现在开始测试自动跟随功能。');
+    const tracker = new BidirectionalScriptTracker();
+    const first = tracker.match(document, '欢迎使用智能提词器', 0, false, 1000)!;
+    expect(tracker.match(document, '欢迎使用智能', first.offset, false, 1100)?.direction).toBe('hold');
+    expect(tracker.match(document, '欢迎使用智能提词器', first.offset, true, 1200)?.direction).toBe('hold');
+    expect(tracker.match(document, '欢迎使用智能', first.offset, false, 2000)?.direction).toBe('backward');
+  });
+
+  it('clears interim deduplication when manual positioning or recognition restarts', () => {
+    const document = createDocument('test', '今天的天气非常晴朗，阳光明媚，微风拂面。');
+    const tracker = new BidirectionalScriptTracker();
+    const first = tracker.match(document, '阳光明媚', document.totalCharacters, false, 1000)!;
+    tracker.reset(document, 1200, 2000);
+    expect(tracker.match(document, '阳光明媚', first.offset, false, 1300)?.direction).toBe('forward');
+  });
+
+  it('does not align a rewind before the user-configured range', () => {
+    const text = '今天我们沿着安静的小路慢慢散步欣赏周围的风景并认真记录身边发生的有趣故事';
+    const document = createDocument('test', text);
+    const tracker = new BidirectionalScriptTracker();
+    const range = 16;
+    const match = tracker.match(document, '认真记录身边发生', text.length, true, 1000, range);
+    expect(match?.direction).toBe('backward');
+    expect(match!.offset).toBeGreaterThanOrEqual(rewindRangeStart(text, text.length, range));
+  });
+
+  it('rebuilds tokens for different documents with the same revision', () => {
+    const tracker = new BidirectionalScriptTracker();
+    tracker.match(createDocument('first', '欢迎使用智能提词功能'), '欢迎使用', 0, true, 1000);
+    const document = createDocument('second', '天空布满绚丽的晚霞');
+    const match = tracker.match(document, '天空布满绚丽的晚霞', 0, true, 2000);
+    expect(match?.offset).toBe(document.totalCharacters);
+  });
+
+  it.each([
+    ['😀欢迎使用 ﬃ 功能测试', '欢迎使用 ffi 功能测试'],
+    ['欢迎使用 e\u0301cole 功能测试', '欢迎使用 école 功能测试'],
+    ['欢迎使用ＡＩ功能测试', '欢迎使用AI功能测试'],
+    ['欢迎使用𠀀功能测试', '欢迎使用𠀀功能测试'],
+  ])('returns original UTF-16 offsets for %s', (text, transcript) => {
+    const document = createDocument('unicode', text);
+    const match = new BidirectionalScriptTracker().match(document, transcript, 0, true, 1000);
+    expect(match?.offset).toBe(text.length);
+    expect(anchorAt(document, match!.offset).charOffset).toBe(text.length);
+  });
+
+  it('handles growing and corrected partials without an unintended rewind', () => {
+    const document = createDocument('test', '欢迎使用智能提词器，我们现在开始测试自动跟随功能。');
+    const tracker = new BidirectionalScriptTracker();
+    let offset = 0;
+    for (const transcript of ['欢迎使用', '欢迎使用智能', '欢迎使用只能提词', '欢迎使用智能提词器', '我们现在开始测试自动跟随功能']) {
+      const match = tracker.match(document, transcript, offset, false, 1000);
+      expect(match?.direction).not.toBe('backward');
+      if (match) offset = match.offset;
+    }
+    expect(offset).toBe(document.totalCharacters - 1);
+  });
+});
