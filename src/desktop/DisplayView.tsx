@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, FlipHorizontal2, Maximize2, Minus, Pause, Play, Plus } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
+import { startBrowserLocalDisplaySync } from './browserSession';
 import type { LayoutReport, MirrorMode, ScriptAnchor, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
 import { anchorAt, focusAnchorForState } from '../core/session';
@@ -40,6 +41,11 @@ export function DisplayView() {
   useEffect(() => {
     stateRef.current = state;
   }, [state]);
+
+  useEffect(() => {
+    if (window.teleprompter || new URLSearchParams(window.location.search).get('view') !== 'display') return;
+    return startBrowserLocalDisplaySync();
+  }, []);
 
   useEffect(() => {
     const updateViewport = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
