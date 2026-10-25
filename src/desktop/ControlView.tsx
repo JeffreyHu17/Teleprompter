@@ -371,8 +371,8 @@ export function ControlView() {
             <div className="preview-actions">
               <button
                 className={previewMirror ? 'icon-button compact active' : 'icon-button compact'}
-                title="仅镜像控制台预览"
-                aria-label="镜像查看"
+                title={previewMirror ? '切换为正常预览（不改变显示端）' : '预览显示端实际镜像效果'}
+                aria-label={previewMirror ? '切换为正常预览' : '预览实际镜像'}
                 aria-pressed={previewMirror}
                 onClick={() => setPreviewMirror((current) => !current)}
               >
@@ -385,7 +385,7 @@ export function ControlView() {
             state={state}
             width={state.layout?.viewportWidth ?? previewDisplay?.width ?? 1280}
             height={state.layout?.viewportHeight ?? previewDisplay?.height ?? 720}
-            viewMirrorHorizontal={previewMirror}
+            previewMirrorMode={previewMirror ? state.mirrorMode : 'none'}
             onLayout={(layout) => {
               if (!window.teleprompter && isBrowserLocalDisplayActive()) return;
               command({ type: 'reportLayout', layout });
@@ -729,11 +729,11 @@ function formatBytes(bytes: number): string {
     : `${Math.round(bytes / 1024 ** 2)} MB`;
 }
 
-function ProgramMonitor({ state, width, height, viewMirrorHorizontal, onLayout }: {
+function ProgramMonitor({ state, width, height, previewMirrorMode, onLayout }: {
   state: ReturnType<typeof useTeleprompter>['state'];
   width: number;
   height: number;
-  viewMirrorHorizontal: boolean;
+  previewMirrorMode: MirrorMode;
   onLayout?: (layout: LayoutReport) => void;
 }) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -764,7 +764,7 @@ function ProgramMonitor({ state, width, height, viewMirrorHorizontal, onLayout }
           viewportWidth={width}
           viewportHeight={height}
           className="preview-surface"
-          viewMirrorHorizontal={viewMirrorHorizontal}
+          previewMirrorMode={previewMirrorMode}
           showTextBounds
           onLayout={onLayout}
         />
