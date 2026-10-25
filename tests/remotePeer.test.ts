@@ -5,6 +5,7 @@ import type { LayoutReport, SessionState } from '../src/types/session';
 
 const sync = vi.hoisted(() => ({
   createBrowserSyncCommand: vi.fn(),
+  dispatchBrowserCommand: vi.fn(),
   getBrowserState: vi.fn(),
   receiveBrowserSyncMessage: vi.fn(),
   registerBrowserSyncTransport: vi.fn(),
@@ -12,6 +13,7 @@ const sync = vi.hoisted(() => ({
 vi.mock('../src/desktop/browserSession', () => sync);
 
 import { decodePairingEnvelope, encodePairingEnvelope, RemotePeer } from '../src/web/remote/remotePeer';
+import { remoteTypographyKey } from '../src/web/remote/previewParity';
 
 type Listener = (event: { data?: string; channel?: MockChannel }) => void;
 
@@ -338,6 +340,54 @@ describe('remote pairing lifecycle', () => {
     expect(remote.current().status).toBe('connected');
     expect(senders.size).toBe(1);
     expect(vi.getTimerCount()).toBe(1);
+  });
+});
+
+describe('remote playback position parity', () => {
+  it('sends display position once per second using the existing ping timer', async () => {
+    const { channel } = await connectDisplay();
+    state = { ...state, layout: layout(), scrollOffsetPx: 212, isPlaying: true };
+    channel.receive({ type: 'state', state: { ...state, layout: null } });
+    channel.send.mockClear();
+
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(JSON.parse(channel.send.mock.calls[0][0])).toEqual({
+      type: 'position',
+      documentRevision: state.document.revision,
+      typographyKey: remoteTypographyKey(state.typography),
+      playing: true,
+      scrollOffsetPx: 212,
+    });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(JSON.parse(channel.send.mock.calls.at(-1)![0]).type).toBe('ping');
+  });
+
+  it('corrects controller drift only for matching document, typography and playback', async () => {
+    const remote = createRemote();
+    await remote.createOffer();
+    const channel = MockPeer.instances.at(-1)!.channel;
+    channel.open();
+
+    state = { ...state, layout: layout(), scrollOffsetPx: 100, isPlaying: true };
+    const message = {
+      type: 'position',
+      documentRevision: state.document.revision,
+      typographyKey: remoteTypographyKey(state.typography),
+      playing: true,
+      scrollOffsetPx: 120,
+    };
+    channel.receive(message);
+    expect(sync.dispatchBrowserCommand).toHaveBeenCalledWith(
+      { type: 'setPlaying', playing: true, scrollOffsetPx: 107 },
+      false,
+    );
+
+    sync.dispatchBrowserCommand.mockClear();
+    channel.receive({ ...message, documentRevision: state.document.revision + 1 });
+    channel.receive({ ...message, typographyKey: 'old-typography' });
+    channel.receive({ ...message, playing: false });
+    expect(sync.dispatchBrowserCommand).not.toHaveBeenCalled();
   });
 });
 
