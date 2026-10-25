@@ -8,6 +8,7 @@ import { QrCode } from './remote/QrCode';
 import { QrScanner } from './remote/QrScanner';
 import { copyText } from './remote/clipboard';
 import { RemotePeer, buildDisplayPairingUrl, type RemotePeerSnapshot } from './remote/remotePeer';
+import { normalizeRemoteFont, REMOTE_FONT_OPTIONS } from './remote/previewParity';
 
 function useBrowserSession() {
   const [state, setState] = useState<SessionState>(getBrowserState());
@@ -58,6 +59,14 @@ export function RemoteControlView() {
   useEffect(() => peer.subscribe(setPeerState), [peer]);
   useEffect(() => () => peer.close(), [peer]);
   useEffect(() => setDraft(state.document.rawText), [state.document.revision]);
+  // Remote devices must use one of the hosted CJK faces rather than their
+  // platform-specific system-ui fonts. Desktop and Android paths are unchanged.
+  useEffect(() => {
+    const sharedFont = normalizeRemoteFont(state.typography.fontFamily);
+    if (state.typography.fontFamily !== sharedFont) {
+      command({ type: 'setTypography', patch: { fontFamily: sharedFont } });
+    }
+  }, [command, state.typography.fontFamily]);
   useEffect(() => {
     if (peerState.status === 'connected') setPairingQrOpen(false);
   }, [peerState.status]);
@@ -211,6 +220,17 @@ export function RemoteControlView() {
         <details className="remote-panel">
           <summary>显示排版</summary>
           <div className="remote-panel-body remote-settings">
+            <label>字体
+              <select
+                value={normalizeRemoteFont(state.typography.fontFamily)}
+                onChange={(event) => command({ type: 'setTypography', patch: { fontFamily: event.target.value } })}
+                aria-label="远程显示字体"
+              >
+                {REMOTE_FONT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
             <label>字号 <output>{state.typography.fontSize}px</output><input type="range" min="16" max="240" value={state.typography.fontSize} onChange={(event) => command({ type: 'setTypography', patch: { fontSize: Number(event.target.value) } })} /></label>
             <label>字重 <output>{state.typography.fontWeight}</output><input type="range" min="100" max="900" step="100" value={state.typography.fontWeight} onChange={(event) => command({ type: 'setTypography', patch: { fontWeight: Number(event.target.value) } })} /></label>
             <label>行距 <output>{state.typography.lineHeight.toFixed(2)}</output><input type="range" min="0.7" max="3" step="0.05" value={state.typography.lineHeight} onChange={(event) => command({ type: 'setTypography', patch: { lineHeight: Number(event.target.value) } })} /></label>

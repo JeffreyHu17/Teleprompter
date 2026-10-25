@@ -1,11 +1,13 @@
 import { gzipSync, gunzipSync } from 'fflate';
 import {
   createBrowserSyncCommand,
+  dispatchBrowserCommand,
   getBrowserState,
   receiveBrowserSyncMessage,
   registerBrowserSyncTransport,
   type BrowserSyncMessage,
 } from '../../desktop/browserSession';
+import { correctedPreviewOffset, remoteTypographyKey } from './previewParity';
 
 export type RemotePeerRole = 'control' | 'display';
 export type RemotePeerStatus = 'idle' | 'preparing' | 'waiting' | 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -25,7 +27,8 @@ type PairingEnvelope = {
 type WireMessage =
   | BrowserSyncMessage
   | { type: 'ping'; sentAt: number }
-  | { type: 'pong'; sentAt: number };
+  | { type: 'pong'; sentAt: number }
+  | { type: 'position'; documentRevision: number; typographyKey: string; playing: boolean; scrollOffsetPx: number };
 
 const PAIRING_PREFIX = 'teleprompter-pair-v1:';
 const ICE_GATHERING_TIMEOUT_MS = 15_000;
@@ -231,6 +234,19 @@ export class RemotePeer {
     this.releaseChannel();
     this.channel = channel;
     let reportedLayout: ReturnType<typeof getBrowserState>['layout'] = null;
+    let receivedControllerState = false;
+    const sendPosition = () => {
+      if (this.role !== 'display' || !receivedControllerState || channel.readyState !== 'open') return;
+      const local = getBrowserState();
+      if (!local.layout || local.layout.documentRevision !== local.document.revision) return;
+      channel.send(JSON.stringify({
+        type: 'position',
+        documentRevision: local.document.revision,
+        typographyKey: remoteTypographyKey(local.typography),
+        playing: local.isPlaying,
+        scrollOffsetPx: local.scrollOffsetPx,
+      } satisfies WireMessage));
+    };
     const send = (message: BrowserSyncMessage) => {
       if (this.channel !== channel || channel.readyState !== 'open') return;
       channel.send(JSON.stringify(message));
@@ -246,7 +262,7 @@ export class RemotePeer {
       if (this.role === 'control') {
         send({ type: 'state', state: getBrowserState() });
       }
-      this.startPings();
+      this.startPings(this.role === 'display' ? sendPosition : undefined);
     };
     const onMessage = (event: MessageEvent) => {
       if (this.channel !== channel) return;
@@ -260,6 +276,23 @@ export class RemotePeer {
           this.update({ latencyMs: Math.max(0, Date.now() - message.sentAt) });
           return;
         }
+        if (message.type === 'position') {
+          if (this.role !== 'control') return;
+          const local = getBrowserState();
+          if (
+            local.document.revision !== message.documentRevision
+            || remoteTypographyKey(local.typography) !== message.typographyKey
+            || local.isPlaying !== message.playing
+            || !local.layout
+            || !Number.isFinite(message.scrollOffsetPx)
+            || message.scrollOffsetPx < 0
+          ) return;
+          const corrected = correctedPreviewOffset(local.scrollOffsetPx, message.scrollOffsetPx, local.isPlaying);
+          if (Math.abs(corrected - local.scrollOffsetPx) >= 0.5) {
+            dispatchBrowserCommand({ type: 'setPlaying', playing: local.isPlaying, scrollOffsetPx: corrected }, false);
+          }
+          return;
+        }
         if (message.type === 'state' && this.role === 'display') {
           const localState = getBrowserState();
           const reusableLayout = localState.layout && layoutInputsMatch(localState, message.state)
@@ -270,6 +303,7 @@ export class RemotePeer {
             type: 'state',
             state: { ...message.state, layout: reusableLayout },
           });
+          receivedControllerState = true;
 
           // The ordered, reliable channel only needs each local measurement once.
           // Repeated snapshots must not serialize and echo the same page arrays.
@@ -280,7 +314,9 @@ export class RemotePeer {
           }
           return;
         }
-        receiveBrowserSyncMessage(message);
+        if (message.type === 'command' || message.type === 'state') {
+          receiveBrowserSyncMessage(message);
+        }
       } catch (error) {
         this.update({ error: error instanceof Error ? error.message : String(error) });
       }
@@ -301,13 +337,18 @@ export class RemotePeer {
     if (channel.readyState === 'open') onOpen();
   }
 
-  private startPings(): void {
+  private startPings(sendPosition?: () => void): void {
     this.stopPings();
+    let ticks = 0;
     this.pingTimer = window.setInterval(() => {
-      if (this.channel?.readyState === 'open') {
+      if (this.channel?.readyState !== 'open') return;
+      sendPosition?.();
+      ticks += 1;
+      // Share one timer for 1 Hz preview correction and 3 s RTT probes.
+      if (ticks % 3 === 0) {
         this.channel.send(JSON.stringify({ type: 'ping', sentAt: Date.now() } satisfies WireMessage));
       }
-    }, 3000);
+    }, 1000);
   }
 
   private stopPings(): void {
