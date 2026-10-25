@@ -166,7 +166,6 @@ export class RemotePeer {
   private connectionAbort: AbortController | null = null;
   private pairingAttempt = 0;
   private pingTimer: number | null = null;
-  private positionTimer: number | null = null;
   private listeners = new Set<(snapshot: RemotePeerSnapshot) => void>();
   private snapshot: RemotePeerSnapshot = { status: 'idle', latencyMs: null, error: null };
 
@@ -225,8 +224,6 @@ export class RemotePeer {
     this.removeChannelListeners?.();
     this.removeChannelListeners = null;
     this.stopPings();
-    if (this.positionTimer !== null) window.clearInterval(this.positionTimer);
-    this.positionTimer = null;
     this.detachTransport?.();
     this.detachTransport = null;
     channel?.close();
@@ -265,10 +262,7 @@ export class RemotePeer {
       if (this.role === 'control') {
         send({ type: 'state', state: getBrowserState() });
       }
-      this.startPings();
-      if (this.role === 'display') {
-        this.positionTimer = window.setInterval(sendPosition, 1000);
-      }
+      this.startPings(this.role === 'display' ? sendPosition : undefined);
     };
     const onMessage = (event: MessageEvent) => {
       if (this.channel !== channel) return;
@@ -310,7 +304,6 @@ export class RemotePeer {
             state: { ...message.state, layout: reusableLayout },
           });
           receivedControllerState = true;
-          sendPosition();
 
           // The ordered, reliable channel only needs each local measurement once.
           // Repeated snapshots must not serialize and echo the same page arrays.
@@ -344,13 +337,18 @@ export class RemotePeer {
     if (channel.readyState === 'open') onOpen();
   }
 
-  private startPings(): void {
+  private startPings(sendPosition?: () => void): void {
     this.stopPings();
+    let ticks = 0;
     this.pingTimer = window.setInterval(() => {
-      if (this.channel?.readyState === 'open') {
+      if (this.channel?.readyState !== 'open') return;
+      sendPosition?.();
+      ticks += 1;
+      // Share one timer for 1 Hz preview correction and 3 s RTT probes.
+      if (ticks % 3 === 0) {
         this.channel.send(JSON.stringify({ type: 'ping', sentAt: Date.now() } satisfies WireMessage));
       }
-    }, 3000);
+    }, 1000);
   }
 
   private stopPings(): void {
