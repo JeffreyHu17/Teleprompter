@@ -33,6 +33,7 @@ import {
   X,
 } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
+import { isBrowserLocalDisplayActive } from './browserSession';
 import type { FunAsrBackend, FunAsrModelId, LayoutReport, MirrorMode, SessionCommand, TypographySettings } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
 import { anchorAt } from '../core/session';
@@ -314,7 +315,11 @@ export function ControlView() {
             style={{
               fontSize: `${editorFontSize}px`,
             }}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={(event) => {
+              const text = event.target.value;
+              setDraft(text);
+              if (text !== state.document.rawText) command({ type: 'setDocument', name: state.document.name, text });
+            }}
             onBlur={commitDraft}
             aria-label="提词稿编辑器"
           />
@@ -382,6 +387,7 @@ export function ControlView() {
             height={state.layout?.viewportHeight ?? previewDisplay?.height ?? 720}
             viewMirrorHorizontal={previewMirror}
             onLayout={(layout) => {
+              if (!window.teleprompter && isBrowserLocalDisplayActive()) return;
               command({ type: 'reportLayout', layout });
             }}
           />
