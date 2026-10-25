@@ -125,12 +125,6 @@ export function RemoteControlView() {
     setCopyStatus(copied ? '配对链接已复制' : '复制失败，请长按二维码或使用手动配对');
   };
 
-  const commitDraft = () => {
-    if (draft !== state.document.rawText) {
-      command({ type: 'setDocument', name: state.document.name, text: draft });
-    }
-  };
-
   const resetTypography = () => {
     command({ type: 'setTypography', patch: { ...DEFAULT_TYPOGRAPHY } });
   };
@@ -212,8 +206,16 @@ export function RemoteControlView() {
         <details className="remote-panel">
           <summary>稿件编辑</summary>
           <div className="remote-panel-body">
-            <textarea className="remote-script-editor" value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commitDraft} />
-            <button onClick={commitDraft}>同步稿件</button>
+            <textarea
+              className="remote-script-editor"
+              value={draft}
+              onChange={(event) => {
+                const text = event.target.value;
+                setDraft(text);
+                if (text !== state.document.rawText) command({ type: 'setDocument', name: state.document.name, text });
+              }}
+            />
+            <small>稿件修改会实时更新预览及已连接的显示设备。</small>
           </div>
         </details>
 

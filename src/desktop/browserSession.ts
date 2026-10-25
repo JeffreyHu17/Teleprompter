@@ -21,11 +21,41 @@ function loadInitialState(): SessionState {
 let state = loadInitialState();
 const listeners = new Set<(next: SessionState) => void>();
 
-export type BrowserCommandSyncMessage = { type: 'command'; id: string; command: SessionCommand };
+export type BrowserCommandSyncMessage = { type: 'command'; id: string; command: SessionCommand; source?: 'display' };
 
 export type BrowserSyncMessage =
   | BrowserCommandSyncMessage
   | { type: 'state'; state: SessionState };
+
+type LocalSyncMessage =
+  | BrowserSyncMessage
+  | { type: 'local-display-hello'; id: string }
+  | { type: 'local-display-pulse'; id: string; documentRevision: number; playing: boolean; scrollOffsetPx: number }
+  | { type: 'local-display-bye'; id: string };
+
+let localDisplayId: string | null = null;
+let activeLocalDisplayId: string | null = null;
+let lastLocalDisplayPulse = 0;
+
+function isLocalController(): boolean {
+  if (typeof window === 'undefined' || window.teleprompter) return false;
+  const params = new URLSearchParams(window.location?.search ?? '');
+  return params.get('view') !== 'display' && !params.has('mode');
+}
+
+export function isBrowserLocalDisplayActive(): boolean {
+  return activeLocalDisplayId !== null && Date.now() - lastLocalDisplayPulse < 5000;
+}
+
+function sameDisplayLayoutInputs(a: SessionState, b: SessionState): boolean {
+  if (a.document.revision !== b.document.revision || a.document.rawText !== b.document.rawText) return false;
+  const x = a.typography;
+  const y = b.typography;
+  return x.fontFamily === y.fontFamily && x.fontSize === y.fontSize
+    && x.fontWeight === y.fontWeight && x.lineHeight === y.lineHeight
+    && x.paragraphSpacing === y.paragraphSpacing && x.sidePadding === y.sidePadding
+    && x.alignment === y.alignment && x.focusPosition === y.focusPosition;
+}
 
 const seenSyncMessages = new Set<string>();
 const remoteSyncSenders = new Set<(message: BrowserSyncMessage) => void>();
@@ -63,7 +93,7 @@ export function createBrowserSyncCommand(command: SessionCommand): BrowserComman
   const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  return { type: 'command', id, command };
+  return { type: 'command', id, command, ...(localDisplayId ? { source: 'display' as const } : {}) };
 }
 
 function rememberSyncMessage(id: string): boolean {
@@ -119,9 +149,78 @@ export function dispatchBrowserCommand(command: SessionCommand, broadcast = true
   }
 }
 
+/**
+ * One-device Web display requests the controller's live snapshot after opening.
+ * The display, not the scaled controller preview, owns the measured geometry.
+ */
+export function startBrowserLocalDisplaySync(): () => void {
+  if (!syncChannel || typeof window === 'undefined' || window.teleprompter) return () => {};
+  const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID() : `local-${Date.now()}-${Math.random()}`;
+  localDisplayId = id;
+  syncChannel.postMessage({ type: 'local-display-hello', id } satisfies LocalSyncMessage);
+  const pulse = () => {
+    const current = getBrowserState();
+    syncChannel.postMessage({
+      type: 'local-display-pulse',
+      id,
+      documentRevision: current.document.revision,
+      playing: current.isPlaying,
+      scrollOffsetPx: current.scrollOffsetPx,
+    } satisfies LocalSyncMessage);
+  };
+  const timer = window.setInterval(pulse, 1000);
+  return () => {
+    window.clearInterval(timer);
+    syncChannel.postMessage({ type: 'local-display-bye', id } satisfies LocalSyncMessage);
+    if (localDisplayId === id) localDisplayId = null;
+  };
+}
+
 if (syncChannel) {
-  syncChannel.onmessage = (event: MessageEvent<BrowserSyncMessage>) => {
-    if (event.data?.type === 'command') receiveBrowserSyncMessage(event.data);
+  syncChannel.onmessage = (event: MessageEvent<LocalSyncMessage & { target?: string }>) => {
+    const message = event.data;
+    if (!message) return;
+    if (message.type === 'local-display-hello' && isLocalController()) {
+      activeLocalDisplayId = message.id;
+      lastLocalDisplayPulse = Date.now();
+      syncChannel.postMessage({ type: 'state', state, target: message.id });
+      return;
+    }
+    if (message.type === 'local-display-bye' && isLocalController()) {
+      if (activeLocalDisplayId === message.id) activeLocalDisplayId = null;
+      return;
+    }
+    if (message.type === 'local-display-pulse' && isLocalController()) {
+      if (activeLocalDisplayId !== message.id) return;
+      lastLocalDisplayPulse = Date.now();
+      if (!state.layout || state.document.revision !== message.documentRevision
+        || state.isPlaying !== message.playing || !Number.isFinite(message.scrollOffsetPx)) return;
+      const difference = message.scrollOffsetPx - state.scrollOffsetPx;
+      const nextOffset = !state.isPlaying || Math.abs(difference) >= 120
+        ? message.scrollOffsetPx : Math.abs(difference) < 2
+          ? state.scrollOffsetPx : state.scrollOffsetPx + difference * 0.35;
+      if (Math.abs(nextOffset - state.scrollOffsetPx) >= 0.5) {
+        dispatchBrowserCommand({ type: 'setPlaying', playing: state.isPlaying, scrollOffsetPx: nextOffset }, false);
+      }
+      return;
+    }
+    if (message.type === 'state' && localDisplayId && message.target === localDisplayId) {
+      const ownLayout = state.layout && sameDisplayLayoutInputs(state, message.state) ? state.layout : null;
+      publishState({ ...message.state, layout: ownLayout });
+      if (ownLayout) {
+        syncChannel.postMessage(createBrowserSyncCommand({ type: 'reportLayout', layout: ownLayout }));
+      }
+      return;
+    }
+    if (message.type === 'command') {
+      // Only the actual display may set geometry when the local output is active.
+      if (message.command.type === 'reportLayout') {
+        if (localDisplayId) return;
+        if (isLocalController() && message.source !== 'display') return;
+      }
+      receiveBrowserSyncMessage(message);
+    }
   };
 }
 

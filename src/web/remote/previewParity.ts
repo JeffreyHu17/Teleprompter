@@ -6,8 +6,8 @@ export const REMOTE_SANS_FONT = '"Dream Han Sans CN", sans-serif';
 export const REMOTE_SERIF_FONT = '"Dream Han Serif CN", serif';
 
 export const REMOTE_FONT_OPTIONS = [
-  { value: REMOTE_SANS_FONT, label: '梦源黑体（跨设备一致）' },
-  { value: REMOTE_SERIF_FONT, label: '梦源宋体（跨设备一致）' },
+  { value: REMOTE_SANS_FONT, label: '梦源黑体' },
+  { value: REMOTE_SERIF_FONT, label: '梦源宋体' },
 ] as const;
 
 export function normalizeRemoteFont(fontFamily: string): string {
