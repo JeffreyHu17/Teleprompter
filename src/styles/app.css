@@ -3053,3 +3053,16 @@ kbd {
     height: min(56vw, 34dvh, 250px) !important;
   }
 }
+
+
+/* Same bundled CJK faces for remote controller and display on different OSes. */
+.remote-settings select[aria-label="远程显示字体"] {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-0);
+  color: var(--text);
+  padding: 0 12px;
+}
