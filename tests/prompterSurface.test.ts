@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ReactElement, ReactNode } from 'react';
+import type { MirrorMode } from '../src/types/session';
 import { anchorAt, createDocument, initialSessionState } from '../src/core/session';
 
 // Pure render regression: model memo/ref hooks, but do not claim DOM layout or
@@ -30,9 +31,9 @@ function find(node: ReactNode, className: string): Element | undefined {
   if (element.props?.className?.split(' ').includes(className)) return element;
   return find(element.props?.children, className);
 }
-function render(state: ReturnType<typeof initialSessionState>, viewMirrorHorizontal = false) {
+function render(state: ReturnType<typeof initialSessionState>, previewMirrorMode?: MirrorMode) {
   hooks.memoIndex = hooks.refIndex = 0;
-  return PrompterSurface({ state, viewportWidth: 1280, viewportHeight: 720, viewMirrorHorizontal });
+  return PrompterSurface({ state, viewportWidth: 1280, viewportHeight: 720, previewMirrorMode });
 }
 beforeEach(() => { hooks.memo = []; hooks.refs = []; });
 
@@ -58,11 +59,21 @@ describe('prompter render work', () => {
     expect(replaced.props.children).not.toBe(advanced.props.children);
   });
 
-  it('preserves all mirror modes and controller preview inversion', () => {
-    for (const [mirrorMode, transform] of [['none', 'scale(1, 1)'], ['horizontal', 'scale(-1, 1)'], ['vertical', 'scale(1, -1)'], ['both', 'scale(-1, -1)']] as const) {
+  it('toggles the controller preview between normal and the exact display mirror mode', () => {
+    for (const [mirrorMode, transform] of [
+      ['none', 'scale(1, 1)'],
+      ['horizontal', 'scale(-1, 1)'],
+      ['vertical', 'scale(1, -1)'],
+      ['both', 'scale(-1, -1)'],
+    ] as const) {
       const state = { ...initialSessionState(), mirrorMode };
+      // Display always renders the configured mode, without a preview override.
       expect(find(render(state), 'prompter-mirror-layer')!.props.style?.transform).toBe(transform);
+      // Preview OFF is always readable, regardless of the display's mirror mode.
+      expect(find(render(state, 'none'), 'prompter-mirror-layer')!.props.style?.transform).toBe('scale(1, 1)');
+      // Preview ON shows the actual output: no extra horizontal inversion.
+      expect(find(render(state, mirrorMode), 'prompter-mirror-layer')!.props.style?.transform).toBe(transform);
+      expect(state.mirrorMode).toBe(mirrorMode);
     }
-    expect(find(render({ ...initialSessionState(), mirrorMode: 'horizontal' }, true), 'prompter-mirror-layer')!.props.style?.transform).toBe('scale(1, 1)');
   });
 });

@@ -2,10 +2,12 @@ import { rewindRangeStart } from '../core/scriptTracker';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { LayoutReport, MirrorMode, ScriptAnchor, SessionState } from '../types/session';
 
-function viewTransform(mode: MirrorMode, viewMirrorHorizontal: boolean): string {
-  const horizontal = mode === 'horizontal' || mode === 'both' ? -1 : 1;
-  const vertical = mode === 'vertical' || mode === 'both' ? -1 : 1;
-  return `scale(${viewMirrorHorizontal ? -horizontal : horizontal}, ${vertical})`;
+function viewTransform(mode: MirrorMode, previewMirrorMode?: MirrorMode): string {
+  // A preview override is visual-only; never modify the shared display mode.
+  const effectiveMode = previewMirrorMode ?? mode;
+  const horizontal = effectiveMode === 'horizontal' || effectiveMode === 'both' ? -1 : 1;
+  const vertical = effectiveMode === 'vertical' || effectiveMode === 'both' ? -1 : 1;
+  return `scale(${horizontal}, ${vertical})`;
 }
 
 interface PrompterSurfaceProps {
@@ -14,7 +16,7 @@ interface PrompterSurfaceProps {
   viewportHeight: number;
   onLayout?: (layout: LayoutReport) => void;
   className?: string;
-  viewMirrorHorizontal?: boolean;
+  previewMirrorMode?: MirrorMode;
   showTextBounds?: boolean;
 }
 
@@ -24,7 +26,7 @@ export function PrompterSurface({
   viewportHeight,
   onLayout,
   className = '',
-  viewMirrorHorizontal = false,
+  previewMirrorMode,
   showTextBounds = false,
 }: PrompterSurfaceProps) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -221,7 +223,7 @@ export function PrompterSurface({
           <span />
         </div>
       )}
-      <div className="prompter-mirror-layer" style={{ transform: viewTransform(state.mirrorMode, viewMirrorHorizontal) }}>
+      <div className="prompter-mirror-layer" style={{ transform: viewTransform(state.mirrorMode, previewMirrorMode) }}>
         <div
           className={`focus-band ${showFocusGuide ? 'is-visible' : ''}`.trim()}
           style={{
