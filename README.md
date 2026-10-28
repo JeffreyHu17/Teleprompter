@@ -17,11 +17,15 @@ Local-first teleprompter software for macOS and Windows. The desktop app separat
 - Pinyin-aware incremental script tracking with automatic reread rewind.
 - Paraformer Streaming INT8/FP32 model management: download, resume, verify, update and delete.
 - macOS DMG/ZIP and Windows NSIS/portable packaging configuration.
+- Responsive browser workspace with same-device reading and a dedicated dual-device controller.
+- QR/manual WebRTC pairing, synchronized script/playback settings and a draggable display preview.
+- Touch, mouse and pen scrubbing with cancellation/multi-touch handling and mobile safe-area controls.
+- Lazy-loaded desktop controls and Word import for a lighter mobile browser startup.
 
 ## Not Implemented Yet
 
 - Android client, on-device recognition and native external-display support.
-- Local-network controller/display pairing.
+- Native desktop local-network controller/display pairing (browser WebRTC pairing is implemented).
 - Production icon, release signing, notarization and auto-update.
 
 ## Development
@@ -37,6 +41,10 @@ npm run dev
 
 The development command opens the Electron controller. Use **打开显示** to create the separate prompter output window.
 
+## Browser Workflow
+
+Use `npx vite` for browser development or `npm run build:web` for a static production build. On phones and touch tablets, the workspace offers **本机提词** and **双机遥控**. Same-device reading stays in the current page; drag to adjust position and tap to play/pause. In dual-device mode, exchange the offer and return QR codes (or paste pairing text) to connect the display. Camera scanning requires HTTPS or localhost, and pairing requires network reachability between devices.
+
 ## Packaging
 
 ```bash
@@ -48,21 +56,23 @@ npm run build:windows
 
 ## Keyboard Controls
 
-| Input | Action |
-| --- | --- |
-| `Space` | Play or pause |
-| `Enter` | Play or pause |
-| `Left` / `Right` | Previous or next derived page |
-| `Shift+Left` / `Shift+Right` | Previous or next paragraph |
-| `Up` / `Down` | Increase or decrease speed |
-| `PageUp` | Rewind approximately 80 normalized characters |
+| Input                            | Action                                        |
+| -------------------------------- | --------------------------------------------- |
+| `Space`                        | Play or pause                                 |
+| `Enter`                        | Play or pause                                 |
+| `Left` / `Right`             | Previous or next derived page                 |
+| `Shift+Left` / `Shift+Right` | Previous or next paragraph                    |
+| `Up` / `Down`                | Increase or decrease speed                    |
+| `PageUp`                       | Rewind approximately 80 normalized characters |
 
 ## Current Verification
 
-- Unit tests: 43 passing.
+- Unit tests: 130 passing (2026-10-28).
+- Browser: Chrome touch emulation at 320px/390px, tablet and landscape sizes; real WebRTC manual/QR-link pairing and remote script/page/play/pause synchronization pass.
+- Physical iOS/Safari and Android device checks remain outstanding.
 - Strict renderer TypeScript check: passing.
 - Electron and Vite production build: passing.
-- macOS controller/display E2E: passing on Apple Silicon.
+- macOS controller/display E2E: previously passed on Apple Silicon; this revision has unit/build coverage, but runtime E2E could not be rerun because the local Electron executable is missing.
 - Paraformer real streaming recognition: passing; Electron receives multiple partial results and advances the script anchor before utterance completion.
 - Paraformer Streaming INT8/FP32 model download/switch/delete lifecycle: passing; segmented SenseVoice models have been removed.
 - Locally ad-hoc signed macOS test app: `release/mac-arm64/Teleprompter Studio.app`.

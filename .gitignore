@@ -41,3 +41,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Local agent tooling
+.workbuddy/
+.serena/

@@ -52,6 +52,13 @@ describe('browser playback clock', () => {
     expect(vi.mocked(requestAnimationFrame).mock.calls.length).toBe(requests);
   });
 
+  it('catches up after a background tab suspends animation frames', () => {
+    session.dispatchBrowserCommand({ type: 'reportLayout', layout: layout() });
+    session.dispatchBrowserCommand({ type: 'setPlaying', playing: true });
+    frame(2000);
+    expect(session.getBrowserState().scrollOffsetPx).toBeCloseTo(60);
+  });
+
   it('keeps one clock on repeated updates and restarts from resume time', () => {
     session.dispatchBrowserCommand({ type: 'reportLayout', layout: layout() });
     session.dispatchBrowserCommand({ type: 'setPlaying', playing: true });

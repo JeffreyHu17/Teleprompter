@@ -22,6 +22,8 @@ export class WindowsSpeechCapture {
   private segmentStartedAt = 0;
   private silenceStartedAt = 0;
   private lastLevelAt = 0;
+  private generation = 0;
+  private starting = false;
 
   constructor(
     private readonly callbacks: WindowsSpeechCaptureCallbacks,
@@ -30,9 +32,11 @@ export class WindowsSpeechCapture {
   ) {}
 
   async start(): Promise<void> {
-    if (this.context) return;
+    if (this.context || this.starting) return;
+    const generation = ++this.generation;
+    this.starting = true;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           echoCancellation: this.processing.echoCancellation,
@@ -42,15 +46,25 @@ export class WindowsSpeechCapture {
         },
         video: false,
       });
+      if (generation !== this.generation) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      this.stream = stream;
       this.context = new AudioContext();
+      await this.context.resume();
+      if (generation !== this.generation) return;
       this.source = this.context.createMediaStreamSource(this.stream);
       this.processor = this.context.createScriptProcessor(2048, 1, 1);
       this.processor.onaudioprocess = (event) => this.process(event.inputBuffer.getChannelData(0), event.inputBuffer.sampleRate);
       this.source.connect(this.processor);
       this.processor.connect(this.context.destination);
     } catch (error) {
+      if (generation !== this.generation) return;
       await this.stop(false);
       this.callbacks.onError(`Windows 麦克风启动失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      if (generation === this.generation) this.starting = false;
     }
   }
 
@@ -70,20 +84,26 @@ export class WindowsSpeechCapture {
   }
 
   async stop(flush = true): Promise<void> {
-    if (flush) await this.finishSegment(this.context?.sampleRate ?? TARGET_SAMPLE_RATE);
-    if (this.processor) {
-      this.processor.onaudioprocess = null;
-      this.processor.disconnect();
-    }
-    this.source?.disconnect();
-    this.stream?.getTracks().forEach((track) => track.stop());
-    await this.context?.close().catch((error) => this.callbacks.onError(`Windows 音频上下文关闭失败：${String(error)}`));
+    ++this.generation;
+    this.starting = false;
+    const { processor, source, stream, context } = this;
     this.context = null;
     this.stream = null;
     this.processor = null;
     this.source = null;
+    if (processor) {
+      processor.onaudioprocess = null;
+      processor.disconnect();
+    }
+    source?.disconnect();
+    stream?.getTracks().forEach((track) => track.stop());
+    const finalSegment = flush ? this.finishSegment(context?.sampleRate ?? TARGET_SAMPLE_RATE) : Promise.resolve();
     this.resetSegment();
     this.callbacks.onLevel(0);
+    await Promise.all([
+      finalSegment,
+      context?.close().catch((error) => this.callbacks.onError(`Windows 音频上下文关闭失败：${String(error)}`)),
+    ]);
   }
 
   private process(input: Float32Array, sampleRate: number): void {

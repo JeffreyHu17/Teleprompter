@@ -126,6 +126,7 @@ export interface TrackingSettings {
 }
 
 export interface SessionState {
+  playbackUpdatedAt?: number;
   tracking: TrackingSettings;
   rereadEvents: RereadEvent[];
   revision: number;

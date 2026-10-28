@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Copy, Minus, MonitorUp, Pause, Play, Plus, QrCode as QrIcon, RotateCcw, X } from 'lucide-react';
 import { dispatchBrowserCommand, getBrowserState, subscribeBrowserState } from '../desktop/browserSession';
-import { DEFAULT_TYPOGRAPHY } from '../core/session';
+import { DEFAULT_TYPOGRAPHY, anchorAt } from '../core/session';
+import { navigateBrowserMode } from './navigation';
 import type { LayoutReport, MirrorMode, SessionCommand, SessionState } from '../types/session';
 import { RemoteProgramPreview } from './RemoteProgramPreview';
 import { QrCode } from './remote/QrCode';
@@ -35,10 +36,7 @@ const MIRROR_OPTIONS: Array<{ mode: MirrorMode; label: string }> = [
 ];
 
 function returnToSingleDeviceMode() {
-  const url = new URL(window.location.href);
-  url.searchParams.delete('mode');
-  url.hash = '';
-  window.location.assign(url.toString());
+  navigateBrowserMode();
 }
 
 export function RemoteControlView() {
@@ -55,6 +53,9 @@ export function RemoteControlView() {
   const [draft, setDraft] = useState(state.document.rawText);
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [panel, setPanel] = useState<'connection' | 'script' | 'settings'>('connection');
+  const [editing, setEditing] = useState(false);
+  const maxScroll = Math.max(1, (state.layout?.documentHeight ?? 1) - state.typography.fontSize * state.typography.lineHeight);
 
   useEffect(() => peer.subscribe(setPeerState), [peer]);
   useEffect(() => () => peer.close(), [peer]);
@@ -68,7 +69,7 @@ export function RemoteControlView() {
     }
   }, [command, state.typography.fontFamily]);
   useEffect(() => {
-    if (peerState.status === 'connected') setPairingQrOpen(false);
+    if (peerState.status === 'connected') { setPairingQrOpen(false); setPanel('script'); }
   }, [peerState.status]);
 
   const remoteConnected = peerState.status === 'connected';
@@ -130,50 +131,47 @@ export function RemoteControlView() {
   };
 
   return (
-    <main className="remote-control-app">
+    <main className={`remote-control-app${editing ? ' is-editing' : ''}`}>
       <div className="remote-control-fixed">
         <header className="remote-control-header">
           <div>
             <span className={remoteConnected ? 'remote-dot connected' : 'remote-dot'} />
             <div>
-              <strong>Teleprompter Remote</strong>
+              <strong>双机遥控台</strong>
               <small>{statusLabel(peerState)}</small>
             </div>
           </div>
           <div className="remote-header-actions">
             <span className="remote-page">{pageNumber} / {Math.max(1, state.layout?.pageCount ?? 1)}</span>
-            <button onClick={returnToSingleDeviceMode}>一机模式</button>
+            <button onClick={returnToSingleDeviceMode}>切换模式</button>
           </div>
         </header>
 
-        <RemoteProgramPreview state={state} onLayout={reportLocalPreviewLayout} />
+        <RemoteProgramPreview state={state} onLayout={reportLocalPreviewLayout} command={command} outputConnected={remoteConnected} />
+        <div className="remote-position"><span>稿件进度</span><input aria-label="稿件进度" type="range" min="0" max={maxScroll} value={Math.min(maxScroll, state.scrollOffsetPx)} onChange={(event) => { command({ type: 'setPlaying', playing: false }); command({ type: 'scrollStep', deltaPx: Number(event.target.value) - state.scrollOffsetPx }); }} /><output>{Math.round(Math.min(1, state.scrollOffsetPx / maxScroll) * 100)}%</output></div>
 
         <section className="remote-transport" aria-label="远程播放控制">
           <button aria-label="上一页" onClick={() => command({ type: 'navigatePage', direction: -1 })}><ChevronLeft /></button>
           <button className="remote-play" aria-label="播放或暂停" onClick={() => command({ type: 'togglePlay' })}>
-            {state.isPlaying ? <Pause /> : <Play fill="currentColor" />}
+            {state.isPlaying ? <Pause /> : <Play fill="currentColor" />}<span>{state.isPlaying ? '暂停' : '播放'}</span>
           </button>
           <button aria-label="下一页" onClick={() => command({ type: 'navigatePage', direction: 1 })}><ChevronRight /></button>
         </section>
+        <section className="remote-speed" aria-label="滚动速度控制"><span>滚速</span><div><button aria-label="降低速度" onClick={() => command({ type: 'adjustSpeed', delta: -5 })}><Minus /></button><label><input aria-label="滚动速度" type="number" inputMode="numeric" min="1" max="2000" value={state.scrollSpeedPxPerSecond} onChange={(event) => { if (event.target.value) command({ type: 'setSpeed', speed: Number(event.target.value) }); }} /><small>px/s</small></label><button aria-label="提高速度" onClick={() => command({ type: 'adjustSpeed', delta: 5 })}><Plus /></button></div></section>
+        <div className="remote-quick-actions"><button onClick={() => command({ type: 'navigateParagraph', direction: -1 })}>上一段</button><button onClick={() => { command({ type: 'setPlaying', playing: false }); command({ type: 'seek', anchor: anchorAt(state.document, 0) }); }}>回到开头</button><button onClick={() => command({ type: 'navigateParagraph', direction: 1 })}>下一段</button></div>
       </div>
 
-      <div className="remote-control-scroll">
+      <nav className="remote-panel-tabs" aria-label="遥控面板">{(['connection', 'script', 'settings'] as const).map((key) => <button key={key} aria-pressed={panel === key} className={panel === key ? 'active' : ''} onClick={() => setPanel(key)}>{key === 'connection' ? '设备连接' : key === 'script' ? '稿件' : '排版'}</button>)}</nav>
+      <div className={`remote-control-scroll remote-tab-${panel}`}>
         {!remoteConnected && (
           <p className="remote-local-preview-note">
             尚未连接显示设备：当前可直接在本机预览播放、翻页和调速；连接后会自动切换为显示端的真实排版。
           </p>
         )}
 
-        <section className="remote-speed">
-          <span>滚动速度</span>
-          <div>
-            <button aria-label="降低速度" onClick={() => command({ type: 'adjustSpeed', delta: -5 })}><Minus /></button>
-            <strong>{Math.round(state.scrollSpeedPxPerSecond)} <small>px/s</small></strong>
-            <button aria-label="提高速度" onClick={() => command({ type: 'adjustSpeed', delta: 5 })}><Plus /></button>
-          </div>
-        </section>
 
-        <details className="remote-panel" open>
+
+        <details className="remote-panel" data-panel="connection" open>
           <summary><MonitorUp />远程显示</summary>
           <div className="remote-panel-body remote-pairing-panel">
             {!pairingUrl && !remoteConnected && (
@@ -203,12 +201,15 @@ export function RemoteControlView() {
           </div>
         </details>
 
-        <details className="remote-panel">
+        <details className="remote-panel" data-panel="script" open>
           <summary>稿件编辑</summary>
           <div className="remote-panel-body">
             <textarea
+              aria-label="遥控提词稿"
               className="remote-script-editor"
               value={draft}
+              onFocus={() => setEditing(true)}
+              onBlur={() => setEditing(false)}
               onChange={(event) => {
                 const text = event.target.value;
                 setDraft(text);
@@ -219,7 +220,7 @@ export function RemoteControlView() {
           </div>
         </details>
 
-        <details className="remote-panel">
+        <details className="remote-panel" data-panel="settings" open>
           <summary>显示排版</summary>
           <div className="remote-panel-body remote-settings">
             <label>字体

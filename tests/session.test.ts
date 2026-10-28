@@ -9,6 +9,11 @@ describe('session reducer', () => {
     expect(state.document.paragraphs.length).toBeGreaterThan(10);
   });
 
+  it('uses readable text by default in a browser and mirrored output on desktop', () => {
+    expect(initialSessionState('browser').mirrorMode).toBe('none');
+    expect(initialSessionState('macos').mirrorMode).toBe('horizontal');
+  });
+
   it('normalizes fractional offsets to character boundaries', () => {
     const state = initialSessionState();
     expect(anchorAt(state.document, 12.9).globalOffset).toBe(12);

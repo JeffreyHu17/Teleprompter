@@ -118,7 +118,7 @@ export function initialSessionState(platform: 'macos' | 'windows' | 'android' | 
       inputGain: 1,
     },
     scrollSpeedPxPerSecond: 30,
-    mirrorMode: 'horizontal',
+    mirrorMode: platform === 'browser' ? 'none' : 'horizontal',
     typography: { ...DEFAULT_TYPOGRAPHY },
     selectedDisplayId: null,
     displayOpen: false,
@@ -191,6 +191,14 @@ function navigatePage(state: SessionState, direction: -1 | 1): { anchor: ScriptA
   const pageAnchors = layout?.pageAnchors ?? [];
 
   if (pageOffsets.length > 1 && pageAnchors.length === pageOffsets.length) {
+    if (state.playbackMode === 'ai') {
+      let currentIndex = 0;
+      pageAnchors.forEach((anchor, index) => {
+        if (anchor.globalOffset <= state.anchor.globalOffset) currentIndex = index;
+      });
+      const target = Math.max(0, Math.min(pageAnchors.length - 1, currentIndex + direction));
+      return { anchor: pageAnchors[target], scrollOffsetPx: pageOffsets[target] };
+    }
     const currentOffset = state.scrollOffsetPx;
     let targetIndex = -1;
     if (direction === 1) {

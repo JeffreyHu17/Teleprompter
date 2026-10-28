@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "build:native": "node scripts/build-native.mjs",
-    "dev": "concurrently -k \"vite\" \"tsc -p electron/tsconfig.json --watch\" \"wait-on tcp:5173 file:dist-electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dev": "concurrently -k \"vite\" \"tsc -p electron/tsconfig.json --watch\" \"wait-on tcp:5173 file:dist-electron/electron/main.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
     "typecheck": "tsc -p tsconfig.json && tsc -p electron/tsconfig.json --noEmit",
     "build": "npm run build:native && tsc -p electron/tsconfig.json && vite build",
     "build:desktop": "cross-env VITE_TARGET=desktop npm run build",

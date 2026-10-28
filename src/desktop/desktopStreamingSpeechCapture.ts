@@ -14,6 +14,8 @@ export class DesktopStreamingSpeechCapture {
   private processor: ScriptProcessorNode | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
   private lastLevelAt = 0;
+  private generation = 0;
+  private starting = false;
 
   constructor(
     private readonly callbacks: DesktopStreamingSpeechCaptureCallbacks,
@@ -22,7 +24,9 @@ export class DesktopStreamingSpeechCapture {
   ) {}
 
   async start(): Promise<void> {
-    if (this.context) return;
+    if (this.context || this.starting) return;
+    const generation = ++this.generation;
+    this.starting = true;
     try {
       let requestedDeviceId = this.inputDeviceId;
       let usedFallback = false;
@@ -34,15 +38,24 @@ export class DesktopStreamingSpeechCapture {
           usedFallback = true;
         }
       }
+      if (generation !== this.generation) return;
+      let stream: MediaStream;
       try {
-        this.stream = await this.openStream(requestedDeviceId);
+        stream = await this.openStream(requestedDeviceId);
       } catch (error) {
         if (!requestedDeviceId || !isUnavailableDeviceError(error)) throw error;
-        this.stream = await this.openStream(null);
+        if (generation !== this.generation) return;
+        stream = await this.openStream(null);
         usedFallback = true;
       }
+      if (generation !== this.generation) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      this.stream = stream;
       this.context = new AudioContext();
       await this.context.resume();
+      if (generation !== this.generation) return;
       this.source = this.context.createMediaStreamSource(this.stream);
       this.processor = this.context.createScriptProcessor(2048, 1, 1);
       this.processor.onaudioprocess = (event) => this.process(event.inputBuffer.getChannelData(0), event.inputBuffer.sampleRate);
@@ -51,8 +64,11 @@ export class DesktopStreamingSpeechCapture {
       const activeTrack = this.stream.getAudioTracks()[0];
       this.callbacks.onReady(activeTrack?.getSettings().deviceId ?? requestedDeviceId, usedFallback);
     } catch (error) {
+      if (generation !== this.generation) return;
       await this.stop();
       this.callbacks.onError(microphoneErrorMessage(error));
+    } finally {
+      if (generation === this.generation) this.starting = false;
     }
   }
 
@@ -85,24 +101,24 @@ export class DesktopStreamingSpeechCapture {
   }
 
   async stop(): Promise<void> {
-    if (this.processor) {
-      this.processor.onaudioprocess = null;
-      this.processor.disconnect();
-    }
-    this.source?.disconnect();
-    this.stream?.getTracks().forEach((track) => track.stop());
-    if (this.context) {
-      try {
-        await this.context.close();
-      } catch (error) {
-        this.callbacks.onError(`音频上下文关闭失败：${String(error)}`);
-      }
-    }
+    ++this.generation;
+    this.starting = false;
+    const { processor, source, stream, context } = this;
     this.context = null;
     this.stream = null;
     this.processor = null;
     this.source = null;
+    if (processor) {
+      processor.onaudioprocess = null;
+      processor.disconnect();
+    }
+    source?.disconnect();
+    stream?.getTracks().forEach((track) => track.stop());
     this.callbacks.onLevel(0);
+    if (context) {
+      try { await context.close(); }
+      catch (error) { this.callbacks.onError(`音频上下文关闭失败：${String(error)}`); }
+    }
   }
 
   private process(input: Float32Array, sampleRate: number): void {

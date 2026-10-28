@@ -22,9 +22,14 @@ export function RemoteDisplayPairing() {
   const [error, setError] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const startedRef = useRef(false);
+  const offerAttemptRef = useRef(0);
 
   useEffect(() => peer.subscribe(setSnapshot), [peer]);
-  useEffect(() => () => peer.close(), [peer]);
+  useEffect(() => () => {
+    ++offerAttemptRef.current;
+    startedRef.current = false;
+    peer.close();
+  }, [peer]);
 
   const acceptOffer = useCallback(async (value: string): Promise<boolean> => {
     const payload = extractPairingPayload(value);
@@ -33,14 +38,17 @@ export function RemoteDisplayPairing() {
       return false;
     }
 
+    const attempt = ++offerAttemptRef.current;
     setError(null);
     setCopyStatus(null);
     try {
       const nextAnswer = await peer.acceptOffer(payload);
+      if (attempt !== offerAttemptRef.current) return false;
       setAnswer(nextAnswer);
       setScannerOpen(false);
       return true;
     } catch (nextError) {
+      if (attempt !== offerAttemptRef.current) return false;
       setError(nextError instanceof Error ? nextError.message : String(nextError));
       return false;
     }
@@ -69,6 +77,7 @@ export function RemoteDisplayPairing() {
   };
 
   const resetPairing = () => {
+    ++offerAttemptRef.current;
     peer.close();
     setAnswer('');
     setManualOffer('');

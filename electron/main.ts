@@ -781,7 +781,7 @@ function displayList(): DisplayInfo[] {
 }
 
 function broadcast(channel: string, payload: unknown): void {
-  for (const window of [controllerWindow, displayWindow]) {
+  for (const window of channel === 'speech:capture' ? [controllerWindow] : [controllerWindow, displayWindow]) {
     if (window && !window.isDestroyed()) window.webContents.send(channel, payload);
   }
 }
@@ -791,9 +791,15 @@ function broadcastState(): void {
 }
 
 function dispatch(command: SessionCommand): void {
+  const previous = state;
+  if (command.type !== 'tick' && state.isPlaying && state.playbackMode === 'fixed') {
+    const now = Date.now();
+    state = sessionReducer(state, { type: 'tick', elapsedMs: Math.max(0, now - lastTick) });
+    lastTick = now;
+  }
   const next = sessionReducer(state, command);
-  if (next === state) return;
-  state = next;
+  if (next === previous) return;
+  state = { ...next, playbackUpdatedAt: Date.now() };
   broadcastState();
 
   if (!['tick', 'reportLayout', 'setTracker', 'setDisplayOpen', 'setPlaying', 'togglePlay', 'seek', 'scrollStep', 'setFocusAdjusting'].includes(command.type)) {
@@ -1107,10 +1113,12 @@ async function ensureMicrophoneAccess(): Promise<boolean> {
   return microphoneAccessPromise;
 }
 
-function handleSessionCommand(command: SessionCommand & { currentScrollOffsetPx?: number }): void {
-  if (typeof command.currentScrollOffsetPx === 'number') {
-    state.scrollOffsetPx = command.currentScrollOffsetPx;
+function handleSessionCommand(command: SessionCommand): void {
+  const now = Date.now();
+  if (state.isPlaying && state.playbackMode === 'fixed') {
+    dispatch({ type: 'tick', elapsedMs: Math.max(0, now - lastTick) });
   }
+  lastTick = now;
   dispatch(command);
   if (manualPositionCommand(command)) scriptTracker.reset(state.document, Date.now(), 2000);
   if (command.type === 'setDocument') scriptTracker.reset(state.document, Date.now(), 1200);
@@ -1292,7 +1300,13 @@ async function importScript(): Promise<ImportResult | null> {
 }
 
 function startTicker(): void {
-  // Smooth scrolling is driven by renderer requestAnimationFrame at native display refresh rates (60/120fps)
+  lastTick = Date.now();
+  ticker = setInterval(() => {
+    const now = Date.now();
+    const elapsedMs = Math.max(0, now - lastTick);
+    lastTick = now;
+    if (state.isPlaying && state.playbackMode === 'fixed') dispatch({ type: 'tick', elapsedMs });
+  }, 50);
 }
 
 function registerIpc(): void {
@@ -1312,13 +1326,19 @@ function registerIpc(): void {
   ipcMain.handle('funasr:inspect', () => inspectFunAsrInstallation());
   ipcMain.handle('funasr:delete-model', (_event, modelId: FunAsrModelId) => deleteFunAsrModel(modelId));
   ipcMain.handle('funasr:open-models', () => shell.openPath(funAsrRoot()));
-  ipcMain.handle('speech:submit-segment', (_event, wav: Uint8Array, durationMs: number) => submitRendererSpeechSegment(wav, durationMs));
-  ipcMain.on('speech:submit-chunk', (_event, samples: ArrayBuffer) => submitStreamingSpeechChunk(samples));
+  ipcMain.handle('speech:submit-segment', (_event, wav: Uint8Array, durationMs: number) => {
+    if (_event.sender === controllerWindow?.webContents) return submitRendererSpeechSegment(wav, durationMs);
+  });
+  ipcMain.on('speech:submit-chunk', (_event, samples: ArrayBuffer) => {
+    if (_event.sender === controllerWindow?.webContents) submitStreamingSpeechChunk(samples);
+  });
   ipcMain.on('speech:input-level', (_event, level: number) => {
+    if (_event.sender !== controllerWindow?.webContents) return;
     if ((process.platform !== 'win32' && process.platform !== 'darwin') || state.trackerStatus !== 'listening' || state.speech.engine !== 'funasr') return;
     handleSpeechEvent({ type: 'level', level });
   });
   ipcMain.on('speech:capture-ready', (_event, _deviceId: string | null, usedFallback: boolean) => {
+    if (_event.sender !== controllerWindow?.webContents) return;
     if ((process.platform !== 'win32' && process.platform !== 'darwin') || state.trackerStatus !== 'listening' || state.speech.engine !== 'funasr') return;
     if (usedFallback && state.speech.inputDeviceId) {
       dispatch({ type: 'setSpeechInputDevice', deviceId: null });
@@ -1330,12 +1350,14 @@ function registerIpc(): void {
     });
   });
   ipcMain.on('speech:capture-error', (_event, message: string) => {
+    if (_event.sender !== controllerWindow?.webContents) return;
     if ((process.platform !== 'win32' && process.platform !== 'darwin') || state.speech.engine !== 'funasr') return;
     stopFunAsrWorker();
     broadcast('speech:capture', { enabled: false, mode: 'streaming', deviceId: state.speech.inputDeviceId, processing: state.microphoneProcessing });
     dispatch({ type: 'setTracker', status: 'lost', patch: { message, inputLevel: 0 } });
   });
   ipcMain.on('speech:capture-warning', (_event, message: string) => {
+    if (_event.sender !== controllerWindow?.webContents) return;
     if ((process.platform !== 'win32' && process.platform !== 'darwin') || state.speech.engine !== 'funasr') return;
     dispatch({ type: 'setTracker', status: state.trackerStatus, patch: { message } });
   });
@@ -1379,12 +1401,17 @@ app.whenReady().then(async () => {
   });
 
   app.on('activate', () => {
-    if (!controllerWindow) controllerWindow = createControllerWindow();
+    if (!controllerWindow) {
+      controllerWindow = createControllerWindow();
+      if (!ticker) startTicker();
+    }
   });
 });
 
 app.on('window-all-closed', () => {
+  dispatch({ type: 'setPlaying', playing: false });
   stopSpeechRecognition();
   if (ticker) clearInterval(ticker);
+  ticker = null;
   if (process.platform !== 'darwin') app.quit();
 });

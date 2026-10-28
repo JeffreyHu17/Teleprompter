@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { dispatchBrowserCommand, getBrowserState, subscribeBrowserState } from './browserSession';
 import { sessionReducer } from '../core/session';
+import { projectDesktopPlayback } from '../core/desktopPlayback';
 import type { DisplayInfo, FunAsrModelId, ImportResult, SessionCommand, SessionState } from '../types/session';
 import { platformCapabilities, runtimePlatform } from './capabilities';
 import { DesktopStreamingSpeechCapture } from './desktopStreamingSpeechCapture';
 import { WindowsSpeechCapture } from './windowsSpeechCapture';
 
-export function useTeleprompter() {
+export function useTeleprompter({ captureSpeech = false }: { captureSpeech?: boolean } = {}) {
   const [state, setState] = useState<SessionState>(getBrowserState());
+  const authoritativeStateRef = useRef(state);
   const stateRef = useRef(state);
   stateRef.current = state;
   const [displays, setDisplays] = useState<DisplayInfo[]>([
@@ -29,25 +31,14 @@ export function useTeleprompter() {
 
   useEffect(() => {
     if (!window.teleprompter) return subscribeBrowserState(setState);
-    void window.teleprompter.getState().then(setState);
+    void window.teleprompter.getState().then((next) => {
+      authoritativeStateRef.current = next;
+      setState(projectDesktopPlayback(next, Date.now()));
+    });
     void window.teleprompter.listDisplays().then(setDisplays);
     const offState = window.teleprompter.subscribeState((next) => {
-      setState((current) => {
-        if (
-          current.isPlaying &&
-          next.isPlaying &&
-          current.playbackMode === 'fixed' &&
-          next.playbackMode === 'fixed' &&
-          current.document.revision === next.document.revision &&
-          current.anchor.globalOffset === next.anchor.globalOffset
-        ) {
-          return {
-            ...next,
-            scrollOffsetPx: current.scrollOffsetPx,
-          };
-        }
-        return next;
-      });
+      authoritativeStateRef.current = next;
+      setState(projectDesktopPlayback(next, Date.now()));
     });
     const offDisplays = window.teleprompter.subscribeDisplays(setDisplays);
     return () => {
@@ -64,7 +55,7 @@ export function useTeleprompter() {
   }, [refreshAudioInputs]);
 
   useEffect(() => {
-    if (!window.teleprompter || !platformCapabilities().desktop) return;
+    if (!captureSpeech || !window.teleprompter || !platformCapabilities().desktop) return;
     let capture: DesktopStreamingSpeechCapture | WindowsSpeechCapture | null = null;
     const stopCapture = async () => {
       const current = capture;
@@ -103,19 +94,15 @@ export function useTeleprompter() {
       off();
       void stopCapture();
     };
-  }, [refreshAudioInputs]);
+  }, [captureSpeech, refreshAudioInputs]);
 
   useEffect(() => {
     if (!window.teleprompter) return;
     if (!state.isPlaying || state.playbackMode !== 'fixed') return;
 
     let animId: number;
-    let lastTime = performance.now();
-    const onFrame = (now: number) => {
-      const delta = now - lastTime;
-      lastTime = now;
-      const elapsedMs = delta > 100 ? 16 : Math.max(0, delta);
-      setState((current) => sessionReducer(current, { type: 'tick', elapsedMs }));
+    const onFrame = () => {
+      setState(projectDesktopPlayback(authoritativeStateRef.current, Date.now()));
       animId = requestAnimationFrame(onFrame);
     };
     animId = requestAnimationFrame(onFrame);
@@ -124,13 +111,11 @@ export function useTeleprompter() {
 
   const command = useCallback((next: SessionCommand) => {
     if (window.teleprompter) {
-      const enriched = {
-        ...next,
-        ...(next.type === 'togglePlay' || next.type === 'setPlaying' ? { scrollOffsetPx: next.scrollOffsetPx ?? stateRef.current.scrollOffsetPx } : {}),
-        currentScrollOffsetPx: stateRef.current.scrollOffsetPx,
-      };
-      setState((current) => sessionReducer(current, enriched as SessionCommand));
-      window.teleprompter.command(enriched as SessionCommand);
+      const optimistic = { ...sessionReducer(stateRef.current, next), playbackUpdatedAt: Date.now() };
+      authoritativeStateRef.current = optimistic;
+      stateRef.current = optimistic;
+      setState(optimistic);
+      window.teleprompter.command(next);
       return;
     }
     dispatchBrowserCommand(next);

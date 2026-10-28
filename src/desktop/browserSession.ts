@@ -252,7 +252,7 @@ function tick(now: number): void {
   const activeFrame = tickFrame;
   const delta = now - lastTick;
   lastTick = now;
-  const elapsedMs = delta > 100 ? 16 : Math.max(0, delta);
+  const elapsedMs = Math.max(0, delta);
   if (shouldTick()) dispatchBrowserCommand({ type: 'tick', elapsedMs });
   if (tickFrame !== activeFrame || tickFrame === null) return;
   tickFrame = shouldTick() ? requestAnimationFrame(tick) : null;

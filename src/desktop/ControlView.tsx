@@ -34,11 +34,11 @@ import {
 } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
 import { isBrowserLocalDisplayActive } from './browserSession';
+import { navigateBrowserMode } from '../web/navigation';
 import type { FunAsrBackend, FunAsrModelId, LayoutReport, MirrorMode, SessionCommand, TypographySettings } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
 import { anchorAt } from '../core/session';
 import { platformCapabilities } from './capabilities';
-import mammoth from 'mammoth';
 
 const FONT_OPTIONS = [
   { label: '梦源黑体', value: '"Dream Han Sans CN", system-ui' },
@@ -60,7 +60,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
 }
 
 export function ControlView() {
-  const { state, displays, audioInputs, refreshAudioInputs, command, toggleDisplay, importScript, openSpeechSettings, installFunAsr, inspectFunAsr, openFunAsrModels, deleteFunAsrModel } = useTeleprompter();
+  const { state, displays, audioInputs, refreshAudioInputs, command, toggleDisplay, importScript, openSpeechSettings, installFunAsr, inspectFunAsr, openFunAsrModels, deleteFunAsrModel } = useTeleprompter({ captureSpeech: true });
   const [draft, setDraft] = useState(state.document.rawText);
   const [previewMirror, setPreviewMirror] = useState(false);
   const [editorCollapsed, setEditorCollapsed] = useState(false);
@@ -181,20 +181,14 @@ export function ControlView() {
     else if (!window.teleprompter) fileRef.current?.click();
   };
 
-  const enterRemoteMode = (mode: 'control' | 'display') => {
-    const url = new URL(window.location.href);
-    url.searchParams.delete('view');
-    url.searchParams.set('mode', mode);
-    url.hash = '';
-    window.location.assign(url.toString());
-  };
+  const enterRemoteMode = (mode: 'control' | 'display') => navigateBrowserMode(mode);
 
   const handleBrowserFile = async (file?: File) => {
     if (!file) return;
     if (file.name.toLowerCase().endsWith('.docx')) {
       try {
         const arrayBuffer = await file.arrayBuffer();
-        const result = await mammoth.extractRawText({ arrayBuffer });
+        const result = await (await import('mammoth')).extractRawText({ arrayBuffer });
         command({ type: 'setDocument', name: file.name, text: result.value });
         return;
       } catch (error) {

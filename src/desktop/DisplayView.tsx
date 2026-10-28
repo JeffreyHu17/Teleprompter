@@ -1,18 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, FlipHorizontal2, Maximize2, Minus, Pause, Play, Plus } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, FlipHorizontal2, Maximize2, Minus, Pause, Play, Plus } from 'lucide-react';
 import { useTeleprompter } from './useTeleprompter';
 import { startBrowserLocalDisplaySync } from './browserSession';
 import type { LayoutReport, MirrorMode, ScriptAnchor, SessionCommand } from '../types/session';
 import { PrompterSurface } from '../components/PrompterSurface';
+import { usePrompterGestures } from '../components/usePrompterGestures';
 import { anchorAt, focusAnchorForState } from '../core/session';
-
-interface DisplayPointerState {
-  pointerId: number;
-  pointerType: string;
-  startY: number;
-  y: number;
-  moved: boolean;
-}
 
 const MIRROR_OPTIONS: Array<{ mode: MirrorMode; label: string }> = [
   { mode: 'none', label: '正常' },
@@ -21,13 +14,12 @@ const MIRROR_OPTIONS: Array<{ mode: MirrorMode; label: string }> = [
   { mode: 'both', label: '双轴' },
 ];
 
-export function DisplayView() {
+export function DisplayView({ onExit }: { onExit?: () => void } = {}) {
   const { state, command } = useTeleprompter();
   const [viewport, setViewport] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   const [controlsVisible, setControlsVisible] = useState(true);
   const [mirrorMenuOpen, setMirrorMenuOpen] = useState(false);
   const stateRef = useRef(state);
-  const pointerRef = useRef<DisplayPointerState | null>(null);
   const hideTimerRef = useRef<number | null>(null);
   const clickTimerRef = useRef<number | null>(null);
   const focusRestoreTimerRef = useRef<number | null>(null);
@@ -103,11 +95,15 @@ export function DisplayView() {
   }, [revealControls]);
 
   useEffect(() => {
+    let disposed = false;
     let wakeLock: any = null;
     const requestWakeLock = async () => {
       try {
         if ('wakeLock' in navigator) {
-          wakeLock = await (navigator as any).wakeLock.request('screen');
+          if (wakeLock && !wakeLock.released) return;
+          const acquired = await (navigator as any).wakeLock.request('screen');
+          if (disposed) { await acquired.release(); return; }
+          wakeLock = acquired;
         }
       } catch {
         // Ignore wakeLock failures
@@ -119,6 +115,7 @@ export function DisplayView() {
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => {
+      disposed = true;
       document.removeEventListener('visibilitychange', handleVisibility);
       void wakeLock?.release();
     };
@@ -177,58 +174,11 @@ export function DisplayView() {
     }, 220);
   }, [command]);
 
-  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    revealControls();
-    const target = event.target as HTMLElement;
-    if (target.closest('[data-display-control]')) return;
-
-    pointerRef.current = {
-      pointerId: event.pointerId,
-      pointerType: event.pointerType,
-      startY: event.clientY,
-      y: event.clientY,
-      moved: false,
-    };
-
-    if (event.pointerType === 'touch') {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
-  }, [revealControls]);
-
-  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    revealControls();
-    const pointer = pointerRef.current;
-    if (!pointer || pointer.pointerId !== event.pointerId) return;
-
-    if (Math.abs(event.clientY - pointer.startY) > 6) pointer.moved = true;
-    if (pointer.pointerType !== 'touch') return;
-
-    const delta = pointer.y - event.clientY;
-    pointer.y = event.clientY;
-    if (Math.abs(delta) < 0.5) return;
-    event.preventDefault();
-    command({ type: 'scrollStep', deltaPx: delta });
-  }, [command, revealControls]);
-
-  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    const pointer = pointerRef.current;
-    if (!pointer || pointer.pointerId !== event.pointerId) return;
-    pointerRef.current = null;
-
-    if (pointer.pointerType === 'touch') {
-      try {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      } catch {
-        // Pointer capture can already be released by the browser.
-      }
-    }
-
-    if (!pointer.moved) schedulePlayToggle();
-  }, [schedulePlayToggle]);
-
-  const handlePointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (pointerRef.current?.pointerId === event.pointerId) pointerRef.current = null;
-  }, []);
+  const gestures = usePrompterGestures({
+    command,
+    onTap: schedulePlayToggle,
+    inverted: state.mirrorMode === 'vertical' || state.mirrorMode === 'both',
+  });
 
   const handleDoubleClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement;
@@ -308,12 +258,12 @@ export function DisplayView() {
     <div
       className="display-touch-surface"
       onDoubleClick={handleDoubleClick}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerCancel}
+      {...gestures}
+      onPointerDown={(event) => { revealControls(); gestures.onPointerDown(event); }}
+      onPointerMove={(event) => { revealControls(); gestures.onPointerMove(event); }}
       style={{ width: '100vw', height: '100vh', overflow: 'hidden' }}
     >
+      {onExit && <button className="display-return" data-display-control onClick={onExit}><ArrowLeft size={18} />返回稿件</button>}
       <PrompterSurface
         state={state}
         viewportWidth={viewport.width}
