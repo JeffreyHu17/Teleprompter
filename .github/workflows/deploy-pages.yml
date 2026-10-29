@@ -4,6 +4,10 @@ on:
   push:
     branches:
       - main
+    paths-ignore:
+      - 'README.md'
+      - 'CHANGELOG.md'
+      - 'docs/**'
   workflow_dispatch:
 
 # Allow GITHUB_TOKEN to deploy to GitHub Pages
@@ -19,6 +23,7 @@ concurrency:
 
 jobs:
   build-and-deploy:
+    timeout-minutes: 15
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
